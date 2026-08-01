@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48" fill="none">
+  <!-- Shield icon -->
+  <path d="M20 6 L34 11 L34 24 C34 32 20 38 20 38 C20 38 6 32 6 24 L6 11 Z"
+        fill="#1d6fa5" stroke="#7dd3fc" stroke-width="1.5"/>
+  <text x="20" y="27" text-anchor="middle" font-family="Arial, sans-serif"
+        font-size="12" font-weight="bold" fill="#7dd3fc">AS</text>
+  <!-- Wordmark -->
+  <text x="44" y="20" font-family="Arial, sans-serif" font-size="14"
+        font-weight="bold" fill="#eee">Alpha</text>
+  <text x="44" y="36" font-family="Arial, sans-serif" font-size="14"
+        font-weight="bold" fill="#7dd3fc">Sentinel</text>
+</svg>
