@@ -1,0 +1,48 @@
+name: Alpha Sentinel Core Invariants
+
+on:
+  push:
+    branches: [main, alpha-sentinel-core]
+  pull_request:
+    branches: [main, alpha-sentinel-core]
+
+permissions:
+  contents: read
+
+jobs:
+  core-invariants:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sentinel-core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sentinel-core/package.json
+
+      - name: Run core tests
+        run: npm test
+
+      - name: Verify state store has no authorization authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          store="state/store.js"
+          ! grep -Eq 'authorizedActors|authorize\(|authorization|policy' "$store"
+          grep -Eq 'commit\(validatedTransition\)' "$store"
+          grep -Eq 'UNVALIDATED_TRANSITION' "$store"
+
+      - name: Verify policy owns authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          policy="policy/policy.js"
+          grep -Eq 'authorize\(' "$policy"
+          grep -Eq 'actors' "$policy"
+          grep -Eq 'operations' "$policy"
