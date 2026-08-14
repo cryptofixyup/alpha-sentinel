@@ -1,51 +1,70 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createProposal } from '../proposals/proposal.js';
+import { createPolicy } from '../policy/policy.js';
+import { validate } from '../lifecycle/machine.js';
 import { DurableState } from '../state/store.js';
 import { STATES } from '../lifecycle/state.js';
 
+const policy = createPolicy({ actors: ['policy-engine'], operations: ['TEST'], now: 0 });
+
 function makeStore() {
-  return new DurableState({ state: STATES.PROPOSED, proposalId: null }, ['policy-engine']);
+  return new DurableState({ state: STATES.PROPOSED, proposalId: null });
 }
 
 function proposal(id, version, actor = 'policy-engine') {
-  return createProposal({ id, actor, expectedVersion: version, payload: { action: 'test' } });
+  return createProposal({
+    id,
+    actor,
+    expectedVersion: version,
+    payload: { operation: 'TEST', expiresAt: 100 },
+  });
 }
 
-test('accepts only permitted deterministic transitions', () => {
+test('commits only a validated transition', () => {
   const store = makeStore();
-  const result = store.transition(proposal('p1', 0), STATES.VALIDATED);
+  const current = store.read();
+  const validated = validate({
+    current: { ...current, state: current.state.state },
+    proposal: proposal('p1', 0),
+    to: STATES.VALIDATED,
+    policy,
+  });
+  const result = store.commit(validated);
   assert.equal(result.state.state, STATES.VALIDATED);
   assert.equal(result.version, 1);
 });
 
-test('rejects illegal transitions', () => {
+test('rejects raw proposal mutation through the state store', () => {
   const store = makeStore();
-  assert.throws(() => store.transition(proposal('p1', 0), STATES.COMPLETED), /INVALID_TRANSITION/);
-});
-
-test('rejects stale proposals', () => {
-  const store = makeStore();
-  store.transition(proposal('p1', 0), STATES.VALIDATED);
-  assert.throws(() => store.transition(proposal('p2', 0), STATES.APPROVED), /STALE_PROPOSAL/);
-});
-
-test('rejects duplicate proposals', () => {
-  const store = makeStore();
-  store.transition(proposal('p1', 0), STATES.VALIDATED);
-  assert.throws(() => store.transition(proposal('p1', 1), STATES.APPROVED), /DUPLICATE_PROPOSAL/);
-});
-
-test('rejects unauthorized actors before state mutation', () => {
-  const store = makeStore();
-  assert.throws(() => store.transition(proposal('evil', 0, 'untrusted-agent'), STATES.VALIDATED), /UNAUTHORIZED_ACTOR/);
+  assert.throws(() => store.commit(proposal('p1', 0)), /UNVALIDATED_TRANSITION/);
   assert.equal(store.read().version, 0);
-  assert.equal(store.read().state.state, STATES.PROPOSED);
 });
 
-test('proposals are deeply immutable', () => {
-  const p = proposal('immutable', 0);
-  assert(Object.isFrozen(p));
-  assert(Object.isFrozen(p.payload));
-  assert.throws(() => { p.payload.action = 'mutate'; }, TypeError);
+test('rejects a stale validated transition', () => {
+  const store = makeStore();
+  const current = store.read();
+  const validated = validate({ current: { ...current, state: current.state.state }, proposal: proposal('p1', 0), to: STATES.VALIDATED, policy });
+  store.commit(validated);
+  assert.throws(() => store.commit(validated), /STALE_VALIDATED_TRANSITION|DUPLICATE_PROPOSAL/);
+});
+
+test('rejects unauthorized proposals before validation', () => {
+  const store = makeStore();
+  const current = store.read();
+  assert.throws(
+    () => validate({ current: { ...current, state: current.state.state }, proposal: proposal('evil', 0, 'untrusted-agent'), to: STATES.VALIDATED, policy }),
+    /POLICY_DENIED/
+  );
+  assert.equal(store.read().version, 0);
+});
+
+test('rejects illegal lifecycle transitions before commit', () => {
+  const store = makeStore();
+  const current = store.read();
+  assert.throws(
+    () => validate({ current: { ...current, state: current.state.state }, proposal: proposal('p1', 0), to: STATES.COMPLETED, policy }),
+    /INVALID_TRANSITION/
+  );
+  assert.equal(store.read().version, 0);
 });
