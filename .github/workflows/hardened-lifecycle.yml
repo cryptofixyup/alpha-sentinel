@@ -1,0 +1,19 @@
+name: Hardened Lifecycle
+
+on:
+  push:
+    branches:
+      - 'hardened/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/persistent-proposal-flow.test.js
