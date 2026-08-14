@@ -53,8 +53,8 @@ jobs:
       - name: Run Python tests
         run: python -m pytest tests/ -v
 
-      - name: Run security-boundary tests
-        run: node --test tests/security-boundary.test.js
+      - name: Run JavaScript security and lifecycle tests
+        run: node --test tests/security-boundary.test.js tests/daemon-lifecycle.test.js tests/lifecycle.test.js
 
       - name: Run lightweight benchmark smoke test
         run: python benchmark_mobile.py --iterations 5
