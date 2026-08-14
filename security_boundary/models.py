@@ -113,6 +113,10 @@ class TransactionEnvelope:
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
+    def digest(self) -> str:
+        """Canonical identity of the exact transaction envelope being simulated."""
+        return hashlib.sha256(self.canonical().encode("utf-8")).hexdigest()
+
 
 def normalise_address(value: str) -> str:
     value = value.strip()
