@@ -6,7 +6,7 @@ const { AuditLog } = require('./audit-log');
 const TERMINAL = new Set(['REJECTED', 'EXPIRED', 'BROADCAST', 'VERIFIED']);
 const ALLOWED = Object.freeze({
   CREATED: ['HASHED', 'REJECTED'], HASHED: ['SIMULATED', 'REJECTED'],
-  SIMULATED: ['TIMELOCKED', 'APPROVED', 'REJECTED'],
+  SIMULATED: ['TIMELOCKED', 'REJECTED'],
   TIMELOCKED: ['RESIMULATION_REQUIRED', 'EXPIRED'],
   RESIMULATION_REQUIRED: ['RESIMULATED', 'EXPIRED'],
   RESIMULATED: ['APPROVED', 'REJECTED'],
@@ -47,7 +47,7 @@ class PersistentLifecycle {
     const current = this._require(lifecycleId);
     if (TERMINAL.has(current.state)) throw new Error('LIFECYCLE_TERMINAL');
     if (!ALLOWED[current.state]?.includes(to)) throw new Error('INVALID_STATE_TRANSITION');
-    if (to === 'APPROVED' && current.state === 'SIMULATED' && current.unlockAt && current.unlockAt > this.now()) throw new Error('TIMELOCK_ACTIVE');
+    if (current.state === 'TIMELOCKED' && to === 'RESIMULATION_REQUIRED' && this.now() < current.unlockAt) throw new Error('TIMELOCK_ACTIVE');
     if (to === 'APPROVED' && current.state === 'RESIMULATED' && data.transactionHash !== current.transactionHash) throw new Error('RESIMULATION_BINDING_MISMATCH');
     return this._transition(lifecycleId, current.state, to, data);
   }
