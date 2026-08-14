@@ -3,6 +3,7 @@ import { isValidatedTransition } from '../lifecycle/validator.js';
 export class DurableState {
   #state;
   #version = 0;
+  #committedTransitions = new Set();
 
   constructor(initialState) {
     this.#state = structuredClone(initialState);
@@ -22,8 +23,8 @@ export class DurableState {
     if (validatedTransition.fromState !== this.#state.state) {
       throw new Error('STATE_CHANGED_SINCE_VALIDATION');
     }
-    if (validatedTransition.proposalId === this.#state.proposalId) {
-      throw new Error('DUPLICATE_PROPOSAL');
+    if (this.#committedTransitions.has(validatedTransition.transitionId)) {
+      throw new Error('DUPLICATE_TRANSITION');
     }
 
     this.#state = {
@@ -31,6 +32,7 @@ export class DurableState {
       state: validatedTransition.target,
       proposalId: validatedTransition.proposalId,
     };
+    this.#committedTransitions.add(validatedTransition.transitionId);
     this.#version += 1;
     return this.read();
   }
