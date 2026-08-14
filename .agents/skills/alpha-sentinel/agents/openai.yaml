@@ -1,0 +1,6 @@
+interface:
+  display_name: "Alpha Sentinel"
+  short_description: "Repo-specific patterns and workflows for alpha-sentinel"
+  default_prompt: "Use the alpha-sentinel repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
