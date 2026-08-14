@@ -51,9 +51,9 @@ test('successful commit changes state and version exactly once', () => {
   const decision = authorize({ proposal, state: before, policy });
   const validated = validate({ proposal, state: before, policyDecision: decision, target: STATES.VALIDATED });
   const after = store.commit(validated);
-  assert.equal(after.state, STATES.VALIDATED);
+  assert.equal(after.state.state, STATES.VALIDATED);
   assert.equal(after.version, before.version + 1);
-  assert.equal(after.proposalId, proposal.id);
+  assert.equal(after.state.proposalId, proposal.id);
 });
 
 test('replay and stale commits cannot mutate state', () => {
@@ -64,6 +64,20 @@ test('replay and stale commits cannot mutate state', () => {
   const validated = validate({ proposal, state: first, policyDecision: authorize({ proposal, state: first, policy }), target: STATES.VALIDATED });
   store.commit(validated);
   const after = store.read();
-  assert.throws(() => store.commit(validated), /STALE_VALIDATED_TRANSITION|DUPLICATE_PROPOSAL/);
+  assert.throws(() => store.commit(validated), /STALE_VALIDATED_TRANSITION|DUPLICATE_TRANSITION/);
   assert.deepEqual(store.read(), after);
+});
+
+test('one proposal may advance through multiple durable lifecycle transitions', () => {
+  const store = new DurableState({ state: STATES.PROPOSED, proposalId: null });
+  const policy = createPolicy({ actors: ['agent-a'], operations: ['VALIDATE', 'APPROVE'] });
+  const proposal1 = createProposal({ id: 'multi', actor: 'agent-a', expectedVersion: 0, payload: { operation: 'VALIDATE' } });
+  const first = store.read();
+  store.commit(validate({ proposal: proposal1, state: first, policyDecision: authorize({ proposal: proposal1, state: first, policy }), target: STATES.VALIDATED }));
+  const proposal2 = createProposal({ id: 'multi', actor: 'agent-a', expectedVersion: 1, payload: { operation: 'APPROVE' } });
+  const second = store.read();
+  store.commit(validate({ proposal: proposal2, state: second, policyDecision: authorize({ proposal: proposal2, state: second, policy }), target: STATES.APPROVED }));
+  assert.equal(store.read().state.state, STATES.APPROVED);
+  assert.equal(store.read().state.proposalId, 'multi');
+  assert.equal(store.read().version, 2);
 });
