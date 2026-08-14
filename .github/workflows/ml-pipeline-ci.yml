@@ -29,6 +29,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install PyTorch CPU build
         run: |
           python -m pip install --upgrade pip
@@ -45,8 +50,11 @@ jobs:
             exit 1
           fi
 
-      - name: Run tests
+      - name: Run Python tests
         run: python -m pytest tests/ -v
+
+      - name: Run security-boundary tests
+        run: node --test tests/security-boundary.test.js
 
       - name: Run lightweight benchmark smoke test
         run: python benchmark_mobile.py --iterations 5
