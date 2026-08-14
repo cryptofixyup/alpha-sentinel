@@ -1,8 +1,8 @@
 import { STATES, transition } from './state.js';
+import { validateTransition } from './validator.js';
 
-export function applyTransition({ current, proposal, to }) {
-  if (current.version !== proposal.expectedVersion) throw new Error('STALE_PROPOSAL');
-  if (current.proposalId !== null && current.proposalId === proposal.id) throw new Error('DUPLICATE_PROPOSAL');
+export function applyTransition({ current, proposal, to, policy }) {
+  validateTransition({ current, proposal, target: to, policy });
   const nextState = transition(current.state, to);
   return { ...current, state: nextState, version: current.version + 1, proposalId: proposal.id };
 }
