@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from .approval import Approval, validate_approval
+from .execution import SignedTransaction
 from .models import TradeProposal, TransactionEnvelope
 from .router import validate_built_transaction
 
@@ -16,7 +17,7 @@ class IsolatedSigner(ABC):
         proposal: TradeProposal,
         tx: TransactionEnvelope,
         approval: Approval,
-    ) -> str:
+    ) -> SignedTransaction:
         raise NotImplementedError
 
 
@@ -28,7 +29,7 @@ class DisabledSigner(IsolatedSigner):
         proposal: TradeProposal,
         tx: TransactionEnvelope,
         approval: Approval,
-    ) -> str:
+    ) -> SignedTransaction:
         validate_built_transaction(proposal, tx)
         validate_approval(proposal, tx, approval)
         raise RuntimeError("signing disabled: isolated signer not configured")
