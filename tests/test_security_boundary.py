@@ -72,10 +72,6 @@ def intent(size_bps=100):
     )
 
 
-def approval_provider(proposal, tx, simulation):
-    return Approval.bind(proposal, tx, "test-approver", approved_at=1)
-
-
 def make_pipeline(router, chain=None, timelock=None, approvals=None):
     return BoundaryPipeline(
         RiskEngine(),
@@ -105,7 +101,7 @@ def test_malformed_transaction_envelope_fails_closed():
 def test_proposal_transaction_digest_is_required():
     result = make_pipeline(FakeRouter(mutate_digest=True)).execute(intent(), 0)
     assert result.status == ProposalStatus.FAILED
-    assert "transaction/proposal digest" in result.reason
+    assert "cryptographically bound to proposal" in result.reason
     assert result.signed_transaction is None
 
 
