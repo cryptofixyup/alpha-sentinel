@@ -1,0 +1,26 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Model weights & generated artifacts
+*.pt
+*.pth
+*.ptl
+*.onnx
+*.safetensors
+gpt2_layer6_activations_fp16.pt
+trained_topk_sae.pth
+sae_mobile.ptl
+feature_dictionary.json
+
+# Benchmark output
+*.jsonl
+*.csv
