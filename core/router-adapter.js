@@ -2,6 +2,11 @@
 
 class BoundTransaction {
   constructor({ proposalId, payload, proposalHash }) {
+    if (!proposalId || typeof proposalId !== 'string') throw new Error('PROPOSAL_ID_REQUIRED');
+    if (!proposalHash || typeof proposalHash !== 'string') throw new Error('PROPOSAL_HASH_REQUIRED');
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('MALFORMED_TRANSACTION_ENVELOPE');
+    }
     this.kind = 'BoundTransaction';
     this.proposalId = proposalId;
     this.payload = Object.freeze(structuredClone(payload));
@@ -24,14 +29,29 @@ class RouterAdapter {
   }
 
   construct({ actor, proposalId, proposalHash, payload }) {
-    if (!proposalId || !proposalHash) throw new Error('PROPOSAL_ID_AND_HASH_REQUIRED');
+    if (!proposalId || typeof proposalId !== 'string' || !proposalHash || typeof proposalHash !== 'string') {
+      throw new Error('PROPOSAL_ID_AND_HASH_REQUIRED');
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('MALFORMED_TRANSACTION_ENVELOPE');
+    }
+
     const snapshot = this.state.snapshot();
+    const lifecycle = snapshot.data.lifecycle;
+    if (!lifecycle || lifecycle.state !== 'APPROVED') throw new Error('ROUTER_BIND_REQUIRES_APPROVAL');
+    if (lifecycle.proposalId !== proposalId) throw new Error('PROPOSAL_ID_MISMATCH');
+    if (lifecycle.metadata?.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
+
     const authorized = this.policy.authorize({ actor, transition: { type: 'bind', proposalId, proposalHash } });
     this.validator.validate({
       state: snapshot,
       transition: { type: 'set', expectedVersion: snapshot.version, payload: { key: 'bound', value: true } },
     });
+
     const transaction = this.build({ proposalId, proposalHash, payload, actor: authorized.actor });
+    if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
+      throw new Error('MALFORMED_TRANSACTION_ENVELOPE');
+    }
     return new BoundTransaction({ proposalId, proposalHash, payload: transaction });
   }
 }
