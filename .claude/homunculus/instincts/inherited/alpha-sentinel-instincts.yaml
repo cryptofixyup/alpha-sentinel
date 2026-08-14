@@ -1,0 +1,151 @@
+# Instincts generated from https://github.com/cryptofixyup/alpha-sentinel
+# Generated: 2026-08-14T11:42:13.068Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: alpha-sentinel-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, chore, build, test, ci
+
+## Evidence
+
+- 8 commits analyzed
+- Detected conventional commit pattern
+- Examples: chore: add ML pipeline repository hygiene, build: add ML pipeline dependencies
+
+---
+id: alpha-sentinel-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Commit Length
+
+## Action
+
+Keep commit messages concise (~39 characters)
+
+## Evidence
+
+- Average commit message length: 39 chars
+- Based on 8 commits
+
+---
+id: alpha-sentinel-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Naming Files
+
+## Action
+
+Use snake_case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: snake_case
+
+---
+id: alpha-sentinel-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: alpha-sentinel-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: alpha-sentinel-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: alpha-sentinel-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/cryptofixyup/alpha-sentinel
+---
+
+# Alpha Sentinel Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~30x per month
+- Files: **/*.test.*
+
