@@ -27,6 +27,7 @@ class PersistentLifecycle {
     if (!proposal || !proposal.proposalId || !proposal.proposalHash) throw new Error('IMMUTABLE_PROPOSAL_REQUIRED');
     if (this.records.has(proposal.proposalId)) throw new Error('PROPOSAL_ALREADY_EXISTS');
     const record = { proposal: JSON.parse(JSON.stringify(proposal)), state:'CREATED', version:0, transactionBindingHash:null, timelockUntil:null, simulationBindingHash:null, approval:null };
+    this.records.set(proposal.proposalId, record);
     this._transition(record, 'CREATED', { proposal: record.proposal });
     return this.get(proposal.proposalId);
   }
@@ -104,9 +105,15 @@ class PersistentLifecycle {
       const event=JSON.parse(line); if(event.previousHash!==previous)throw new Error('AUDIT_CHAIN_BROKEN');
       const {eventHash,...unsigned}=event; if(hash(unsigned)!==eventHash)throw new Error('AUDIT_EVENT_TAMPERED'); previous=eventHash;
       let record=this.records.get(event.proposalId);
-      if(!record){record={proposal:event.payload?.proposal||{proposalId:event.proposalId,proposalHash:event.proposalHash},state:event.nextState,version:event.version,transactionBindingHash:null,timelockUntil:null,simulationBindingHash:null,approval:null};this.records.set(event.proposalId,record)}
-      else{record.state=event.nextState;record.version=event.version;}
-      const p=event.payload||{}; if(p.transactionBindingHash)record.transactionBindingHash=p.transactionBindingHash; if(p.timelockUntil)record.timelockUntil=p.timelockUntil; if(p.approvalId)record.approval={approvalId:p.approvalId,proposalHash:event.proposalHash,transactionBindingHash:p.transactionBindingHash};
+      if(!record){
+        record={proposal:event.payload?.proposal||{proposalId:event.proposalId,proposalHash:event.proposalHash},state:event.nextState,version:event.version,transactionBindingHash:null,timelockUntil:null,simulationBindingHash:null,approval:null};
+        this.records.set(event.proposalId,record);
+      } else { record.state=event.nextState; record.version=event.version; }
+      const p=event.payload||{};
+      if(p.transactionBindingHash) record.transactionBindingHash=p.transactionBindingHash;
+      if(p.timelockUntil !== undefined) record.timelockUntil=p.timelockUntil;
+      if(event.nextState==='RE_SIMULATED' && p.transactionBindingHash) record.simulationBindingHash=p.transactionBindingHash;
+      if(event.nextState==='APPROVED' && p.approvalId) record.approval={approvalId:p.approvalId,proposalHash:event.proposalHash,transactionBindingHash:p.transactionBindingHash};
     }
     this.lastAuditHash=previous;
   }
