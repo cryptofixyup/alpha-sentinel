@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .approval import Approval, Timelock, validate_approval
-from .models import ProposalStatus, RiskDecision, TradeIntent, TradeProposal, TransactionEnvelope
+from .execution import SignedTransaction
+from .models import ProposalStatus, TradeIntent, TradeProposal, TransactionEnvelope
 from .policy import Policy
 from .proposal import make_proposal
 from .risk import RiskEngine
@@ -22,7 +23,7 @@ class PipelineResult:
     proposal: TradeProposal | None
     transaction: TransactionEnvelope | None
     simulation: SimulationResult | None
-    signed_transaction: str | None
+    signed_transaction: SignedTransaction | None
     reason: str
 
 
@@ -54,11 +55,7 @@ class BoundaryPipeline:
     ) -> PipelineResult:
         # 1. RISK
         gas_gwei = self.simulator.gas_price() // 1_000_000_000
-        risk = self.risk.evaluate(
-            intent.size_bps,
-            portfolio_exposure_bps,
-            gas_gwei,
-        )
+        risk = self.risk.evaluate(intent.size_bps, portfolio_exposure_bps, gas_gwei)
         if not risk.allowed:
             return PipelineResult(
                 ProposalStatus.POLICY_REJECTED, None, None, None, None, risk.reason
@@ -144,7 +141,7 @@ class BoundaryPipeline:
             )
 
         # 9. BROADCAST and 10. VERIFICATION intentionally remain outside
-        # this process. The signer returns an opaque signed transaction.
+        # this process. The signer returns an authorization-bound opaque payload.
         return PipelineResult(
             ProposalStatus.SIGNED,
             proposal,
