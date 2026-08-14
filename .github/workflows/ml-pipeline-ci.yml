@@ -2,7 +2,7 @@ name: ML Pipeline CI
 
 on:
   push:
-    branches: [main, 'agent/**']
+    branches: [main, 'agent/**', 'hardened-transaction-boundary']
   pull_request:
     branches: [main]
   workflow_dispatch:
