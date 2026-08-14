@@ -12,8 +12,10 @@ export function validateTransition({ current, proposal, target, policy }) {
 // precondition and is never delegated to DurableState.
 export function validate({ proposal, state, policyDecision, target }) {
   if (policyDecision !== DECISIONS.ALLOW) throw new Error('POLICY_DENIED');
-  if (!canTransition(state.state, target)) {
-    throw new Error(`INVALID_TRANSITION:${state.state}->${target}`);
+
+  const currentState = state?.state?.state ?? state?.state;
+  if (!canTransition(currentState, target)) {
+    throw new Error(`INVALID_TRANSITION:${currentState}->${target}`);
   }
   if (proposal.expectedVersion !== state.version) {
     throw new Error('STALE_PROPOSAL_VERSION');
@@ -26,7 +28,7 @@ export function validate({ proposal, state, policyDecision, target }) {
     transitionId,
     proposalId: proposal.id,
     fromVersion: state.version,
-    fromState: state.state,
+    fromState: currentState,
     target,
   });
 }
