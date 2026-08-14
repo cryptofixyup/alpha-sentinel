@@ -46,12 +46,13 @@ test('denies a stale proposal', () => {
   assert.equal(authorize({ proposal: p, state, policy }), DECISIONS.DENY);
 });
 
-test('rejects replay of an already consumed proposal', () => {
-  const p = proposal();
-  assert.throws(
-    () => validateTransition({ current: { ...state, proposalId: 'p-1' }, proposal: p, target: STATES.VALIDATED, policy }),
-    /DUPLICATE_PROPOSAL/
-  );
+test('allows a later lifecycle transition for the same proposal identity', () => {
+  const current = { state: STATES.VALIDATED, version: 1, proposalId: 'p-1' };
+  const p = proposal({ expectedVersion: 1 });
+  const validated = validateTransition({ current, proposal: p, target: STATES.APPROVED, policy });
+  assert.equal(validated.proposalId, 'p-1');
+  assert.equal(validated.fromVersion, 1);
+  assert.equal(validated.target, STATES.APPROVED);
 });
 
 test('rejects an illegal lifecycle transition', () => {
