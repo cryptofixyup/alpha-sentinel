@@ -1,6 +1,7 @@
 name: Hardened Lifecycle
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - 'hardened/**'
