@@ -5,26 +5,28 @@ const VALIDATED = Symbol('ValidatedTransition');
 
 export function validateTransition({ current, proposal, target, policy }) {
   const decision = authorize({ proposal, state: current, policy });
-  if (decision !== DECISIONS.ALLOW) throw new Error('POLICY_DENIED');
-  if (!canTransition(current.state, target)) {
-    throw new Error(`INVALID_TRANSITION:${current.state}->${target}`);
+  return validate({ proposal, state: current, policyDecision: decision, target });
+}
+
+// Canonical validator entry point. Authorization remains an explicit
+// precondition and is never delegated to DurableState.
+export function validate({ proposal, state, policyDecision, target }) {
+  if (policyDecision !== DECISIONS.ALLOW) throw new Error('POLICY_DENIED');
+  if (!canTransition(state.state, target)) {
+    throw new Error(`INVALID_TRANSITION:${state.state}->${target}`);
   }
-  if (proposal.expectedVersion !== current.version) {
+  if (proposal.expectedVersion !== state.version) {
     throw new Error('STALE_PROPOSAL_VERSION');
   }
 
-  // A proposal identifies the lifecycle object. Each committed transition is
-  // identified separately by source version and target state. This permits
-  // one proposal to advance through multiple durable lifecycle states while
-  // making replay of the exact validated transition fail closed.
-  const transitionId = `${proposal.id}:${current.version}:${target}`;
+  const transitionId = `${proposal.id}:${state.version}:${target}`;
 
   return Object.freeze({
     [VALIDATED]: true,
     transitionId,
     proposalId: proposal.id,
-    fromVersion: current.version,
-    fromState: current.state,
+    fromVersion: state.version,
+    fromState: state.state,
     target,
   });
 }
