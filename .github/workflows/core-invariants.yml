@@ -2,9 +2,14 @@ name: Alpha Sentinel Core Invariants
 
 on:
   push:
-    branches: [main, alpha-sentinel-core]
+    branches:
+      - main
+      - alpha-sentinel-core
   pull_request:
-    branches: [main, alpha-sentinel-core]
+    branches:
+      - main
+      - alpha-sentinel-core
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,8 +28,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: sentinel-core/package.json
 
       - name: Run core tests
         run: npm test
