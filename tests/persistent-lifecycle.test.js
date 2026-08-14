@@ -45,13 +45,23 @@ test('invalid state transitions are rejected', () => {
   assert.throws(() => lifecycle.transition('p1', 'SIGNED'), /INVALID_STATE_TRANSITION/);
 });
 
-test('timelock cannot be bypassed', () => {
+test('timelock cannot be bypassed through transition', () => {
   const filePath = db(); const { proposal, hash } = fixture(); const clock = advanceClock();
   const lifecycle = new PersistentLifecycle({ filePath, timelockSeconds: 10, now: clock.now });
   lifecycle.create({ lifecycleId: 'p1', proposal, proposalHash: hash });
   lifecycle.transition('p1', 'HASHED'); lifecycle.transition('p1', 'SIMULATED', { transactionHash: 'tx1' }); lifecycle.timelock('p1', 'tx1');
   assert.throws(() => lifecycle.transition('p1', 'RESIMULATION_REQUIRED'), /TIMELOCK_ACTIVE/);
-  assert.throws(() => lifecycle.transition('p1', 'APPROVED'), /INVALID_STATE_TRANSITION/);
+  clock.advance(10);
+  assert.equal(lifecycle.transition('p1', 'RESIMULATION_REQUIRED').state, 'RESIMULATION_REQUIRED');
+});
+
+test('approval cannot bypass timelock and re-simulation from simulated state', () => {
+  const filePath = db(); const { proposal, hash } = fixture();
+  const lifecycle = new PersistentLifecycle({ filePath });
+  lifecycle.create({ lifecycleId: 'p1', proposal, proposalHash: hash });
+  lifecycle.transition('p1', 'HASHED');
+  lifecycle.transition('p1', 'SIMULATED', { transactionHash: 'tx1' });
+  assert.throws(() => lifecycle.transition('p1', 'APPROVED', { transactionHash: 'tx1' }), /INVALID_STATE_TRANSITION/);
 });
 
 test('approval requires exact re-simulation binding after timelock', () => {
