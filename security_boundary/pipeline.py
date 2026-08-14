@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
-from .approval import Timelock
+from .approval import Approval, Timelock, validate_approval
 from .models import ProposalStatus, RiskDecision, TradeIntent, TradeProposal, TransactionEnvelope
 from .policy import Policy
 from .proposal import make_proposal
 from .risk import RiskEngine
-from .router import RouterAdapter
+from .router import RouterAdapter, validate_built_transaction
 from .signer import IsolatedSigner
 from .simulation import ChainSimulator, SimulationResult, simulate
+
+
+ApprovalProvider = Callable[[TradeProposal, TransactionEnvelope, SimulationResult], Approval | None]
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,7 @@ class BoundaryPipeline:
         simulator: ChainSimulator,
         signer: IsolatedSigner,
         timelock: Timelock | None = None,
+        approval_provider: ApprovalProvider | None = None,
     ) -> None:
         self.risk = risk
         self.policy = policy
@@ -40,6 +45,7 @@ class BoundaryPipeline:
         self.simulator = simulator
         self.signer = signer
         self.timelock = timelock or Timelock()
+        self.approval_provider = approval_provider
 
     def execute(
         self,
@@ -74,21 +80,15 @@ class BoundaryPipeline:
             self.risk.limits.max_slippage_bps,
             self.risk.limits.max_gas_price_gwei * 1_000_000_000,
         )
-        proposal_digest = proposal.digest()
 
         # 5. ROUTER-SPECIFIC TRANSACTION BUILDER
         try:
             tx = self.router.build(proposal)
+            validate_built_transaction(proposal, tx)
         except Exception as exc:
             return PipelineResult(
                 ProposalStatus.FAILED, proposal, None, None, None,
                 f"transaction build blocked: {exc}",
-            )
-
-        if tx.proposal_digest != proposal_digest:
-            return PipelineResult(
-                ProposalStatus.FAILED, proposal, tx, None, None,
-                "transaction/proposal digest mismatch",
             )
 
         # 6. SIMULATION
@@ -107,7 +107,7 @@ class BoundaryPipeline:
                 "timelock not expired",
             )
 
-        # Re-simulate after timelock before signing.
+        # Re-simulate after timelock before approval/signing.
         simulation = simulate(proposal, tx, self.simulator)
         if not simulation.passed:
             return PipelineResult(
@@ -116,9 +116,27 @@ class BoundaryPipeline:
                 "post-timelock simulation failed: " + simulation.reason,
             )
 
+        if self.approval_provider is None:
+            return PipelineResult(
+                ProposalStatus.SIGNING_BLOCKED,
+                proposal, tx, simulation, None,
+                "approval provider not configured",
+            )
+
+        try:
+            approval = self.approval_provider(proposal, tx, simulation)
+            if approval is None:
+                raise PermissionError("approval not granted")
+            validate_approval(proposal, tx, approval)
+        except Exception as exc:
+            return PipelineResult(
+                ProposalStatus.SIGNING_BLOCKED,
+                proposal, tx, simulation, None, str(exc),
+            )
+
         # 8. ISOLATED SIGNER
         try:
-            signed = self.signer.sign(proposal, tx)
+            signed = self.signer.sign(proposal, tx, approval)
         except Exception as exc:
             return PipelineResult(
                 ProposalStatus.SIGNING_BLOCKED,
