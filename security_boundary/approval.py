@@ -3,12 +3,45 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from .models import TradeProposal, TransactionEnvelope
+
 
 @dataclass(frozen=True)
 class Approval:
+    """Authorization bound to both the immutable proposal and exact tx envelope."""
+
     proposal_digest: str
+    transaction_digest: str
     approved_at: int
     approver: str
+
+    @classmethod
+    def bind(
+        cls,
+        proposal: TradeProposal,
+        transaction: TransactionEnvelope,
+        approver: str,
+        approved_at: int | None = None,
+    ) -> "Approval":
+        if not approver.strip():
+            raise ValueError("approver is required")
+        return cls(
+            proposal_digest=proposal.digest(),
+            transaction_digest=transaction.digest(),
+            approved_at=int(time.time()) if approved_at is None else approved_at,
+            approver=approver,
+        )
+
+
+def validate_approval(
+    proposal: TradeProposal,
+    transaction: TransactionEnvelope,
+    approval: Approval,
+) -> None:
+    if approval.proposal_digest != proposal.digest():
+        raise PermissionError("approval is not bound to proposal")
+    if approval.transaction_digest != transaction.digest():
+        raise PermissionError("approval is not bound to exact transaction envelope")
 
 
 class Timelock:
