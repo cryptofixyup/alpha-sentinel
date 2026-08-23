@@ -29,9 +29,26 @@ class PersistentLifecycle {
     for (const event of this.audit.records()) {
       const prior = this._state.get(event.lifecycleId);
       const expectedVersion = prior ? prior.version + 1 : 0;
+
+      if (!prior) {
+        if (event.from !== 'GENESIS' || event.to !== 'CREATED' || event.data.state !== undefined) {
+          throw new Error('LIFECYCLE_HISTORY_INVALID');
+        }
+      } else {
+        if (TERMINAL.has(prior.state)) throw new Error('LIFECYCLE_HISTORY_INVALID');
+        if (event.from !== prior.state || !ALLOWED[prior.state]?.includes(event.to)) throw new Error('LIFECYCLE_HISTORY_INVALID');
+      }
       if (event.data.version !== expectedVersion) throw new Error('LIFECYCLE_VERSION_BROKEN');
-      if (prior && (event.from !== prior.state || !ALLOWED[prior.state]?.includes(event.to))) throw new Error('LIFECYCLE_HISTORY_INVALID');
-      this._state.set(event.lifecycleId, { version: event.data.version, state: event.to, proposalHash: event.data.proposalHash ?? prior?.proposalHash, transactionHash: event.data.transactionHash ?? prior?.transactionHash, unlockAt: event.data.unlockAt ?? prior?.unlockAt });
+      if (event.to === 'RESIMULATED' && event.data.transactionHash !== prior?.transactionHash) throw new Error('LIFECYCLE_HISTORY_INVALID');
+      if (event.to === 'APPROVED' && event.data.transactionHash !== prior?.transactionHash) throw new Error('LIFECYCLE_HISTORY_INVALID');
+
+      this._state.set(event.lifecycleId, {
+        version: event.data.version,
+        state: event.to,
+        proposalHash: event.data.proposalHash ?? prior?.proposalHash,
+        transactionHash: event.data.transactionHash ?? prior?.transactionHash,
+        unlockAt: event.data.unlockAt ?? prior?.unlockAt,
+      });
     }
   }
 
