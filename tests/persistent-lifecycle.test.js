@@ -45,7 +45,7 @@ test('proposal hash substitution is rejected', () => {
 });
 
 test('duplicate lifecycle creation is rejected', () => {
-  const { filePath, proposal, hash } = fixture(); const lifecycle = new PersistentLifecycle({ filePath });
+  const filePath = db(); const { proposal, hash } = fixture(); const lifecycle = new PersistentLifecycle({ filePath });
   lifecycle.create({ lifecycleId: 'p1', proposal, proposalHash: hash });
   assert.throws(() => lifecycle.create({ lifecycleId: 'p1', proposal, proposalHash: hash }), /LIFECYCLE_EXISTS/);
 });
