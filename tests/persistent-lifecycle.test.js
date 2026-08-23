@@ -109,6 +109,21 @@ test('audit truncation is fail-closed on restart', () => {
   assert.throws(() => new PersistentLifecycle({ filePath }), /AUDIT_TERMINAL_CHECKPOINT_MISMATCH/);
 });
 
+test('replay requires a genesis creation event', () => {
+  const filePath = db();
+  const audit = new AuditLog(filePath);
+  audit.append({ lifecycleId: 'p1', from: 'HASHED', to: 'SIMULATED', event: 'STATE_SIMULATED', data: { version: 0, transactionHash: 'tx1' } });
+  assert.throws(() => new PersistentLifecycle({ filePath }), /LIFECYCLE_HISTORY_INVALID/);
+});
+
+test('replay rejects transitions after a terminal state', () => {
+  const filePath = db(); const { proposal, hash } = fixture(); const audit = new AuditLog(filePath);
+  audit.append({ lifecycleId: 'p1', from: 'GENESIS', to: 'CREATED', event: 'STATE_CREATED', data: { version: 0, proposalHash: hash } });
+  audit.append({ lifecycleId: 'p1', from: 'CREATED', to: 'REJECTED', event: 'STATE_REJECTED', data: { version: 1, proposalHash: hash } });
+  audit.append({ lifecycleId: 'p1', from: 'REJECTED', to: 'HASHED', event: 'STATE_HASHED', data: { version: 2, proposalHash: hash } });
+  assert.throws(() => new PersistentLifecycle({ filePath }), /LIFECYCLE_HISTORY_INVALID/);
+});
+
 test('missing lifecycle is rejected', () => {
   const lifecycle = new PersistentLifecycle({ filePath: db() });
   assert.throws(() => lifecycle.get('missing'), /LIFECYCLE_NOT_FOUND/);
