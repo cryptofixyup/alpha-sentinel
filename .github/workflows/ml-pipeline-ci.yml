@@ -2,7 +2,7 @@ name: ML Pipeline CI
 
 on:
   push:
-    branches: [main, 'agent/**']
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
