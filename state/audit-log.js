@@ -34,10 +34,28 @@ class AuditLog {
     }
   }
 
+  _writeAll(fd, data, truncateTo = null) {
+    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    let offset = 0;
+    try {
+      while (offset < buffer.length) {
+        const written = fs.writeSync(fd, buffer, offset, buffer.length - offset, null);
+        if (!Number.isInteger(written) || written <= 0) throw new Error('AUDIT_WRITE_INCOMPLETE');
+        offset += written;
+      }
+    } catch (error) {
+      if (truncateTo !== null) {
+        try { fs.ftruncateSync(fd, truncateTo); } catch { /* preserve original write error */ }
+      }
+      throw error;
+    }
+  }
+
   _writeCheckpoint(checkpoint) {
+    const data = `${JSON.stringify(checkpoint)}\n`;
     const fd = fs.openSync(this.checkpointPath, 'w');
     try {
-      fs.writeSync(fd, `${JSON.stringify(checkpoint)}\n`);
+      this._writeAll(fd, data, 0);
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
@@ -80,7 +98,13 @@ class AuditLog {
     const hash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
     const record = JSON.stringify({ ...body, hash }) + '\n';
     const fd = fs.openSync(this.filePath, 'a');
-    try { fs.writeSync(fd, record); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    try {
+      const initialSize = fs.fstatSync(fd).size;
+      this._writeAll(fd, record, initialSize);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     this._writeCheckpoint({ sequence: body.sequence, hash });
     return Object.freeze({ ...body, hash });
   }
