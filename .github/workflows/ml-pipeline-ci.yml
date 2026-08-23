@@ -2,7 +2,7 @@ name: ML Pipeline CI
 
 on:
   push:
-    branches: [main, 'agent/**']
+    branches: [main, 'agent/**', 'hardened/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -55,6 +55,9 @@ jobs:
 
       - name: Run JavaScript security and lifecycle tests
         run: node --test tests/security-boundary.test.js tests/daemon-lifecycle.test.js tests/lifecycle.test.js
+
+      - name: Run persistent lifecycle tests
+        run: node --test tests/persistent-lifecycle.test.js
 
       - name: Run lightweight benchmark smoke test
         run: python benchmark_mobile.py --iterations 5
