@@ -5,8 +5,9 @@ if(!isMainThread){
   const crypto=require('node:crypto');const {verifySignedResult}=require('../security/signed-result-verifier');
   const publicKey=crypto.createPublicKey({key:Buffer.from(publicKeyDer,'base64'),format:'der',type:'spki'});
   const lifecycle={get:()=>({proposal:{proposalHash:cryptoResult.proposalHash,platforms:[{platform:'twitter',accountId:'acct-a'}]},externalExecution:{postId:'post-1',requestId:'req-1'}})};
-  Atomics.add(barrier,0,1);Atomics.notify(barrier,0);
-  while(Atomics.load(barrier,0)<total){const n=Atomics.load(barrier,0);Atomics.wait(barrier,0,n);}
+  const gate=new Int32Array(barrier);
+  Atomics.add(gate,0,1);Atomics.notify(gate,0);
+  while(Atomics.load(gate,0)<total){const n=Atomics.load(gate,0);Atomics.wait(gate,0,n);}
   try{const r=verifySignedResult({result:cryptoResult,publicKey,lifecycle,now:()=>cryptoResult.timestamp,resultJournalPath:journal});parentPort.postMessage({accepted:true,result:r});}catch(err){parentPort.postMessage({accepted:false,error:err.message});}
 }else{
 const test=require('node:test');const assert=require('node:assert/strict');const crypto=require('node:crypto');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');const {PersistentLifecycle}=require('../state/persistent-lifecycle');const {proposalHash}=require('../core/zernio-router-adapter');const {signResult,verifySignedResult,loadSeenResultIds}=require('../security/signed-result-verifier');
