@@ -83,7 +83,7 @@ test('published webhook advances BROADCAST to VERIFIED exactly once', async () =
 
 test('external post correlation survives lifecycle restart', async () => {
   const s = setup();
-  const a = await execute(s);
+  await execute(s);
   const before = s.lifecycle.get(s.proposal.proposalId);
   const restarted = new PersistentLifecycle(s.file, { clock: () => s.clock.value });
   const a2 = new ZernioRouterAdapter({ lifecycle: restarted, transport: transport(), webhookSecret: 'webhook-secret', clock: () => s.clock.value });
@@ -113,12 +113,19 @@ test('post.failed webhook durably rejects a broadcast execution', async () => {
   assert.equal(s.lifecycle.get(s.proposal.proposalId).state, 'REJECTED');
 });
 
+test('per-platform published evidence does not falsely verify a multi-target execution', async () => {
+  const s = setup();
+  const a = await execute(s);
+  const raw = JSON.stringify({ id: 'evt-platform-1', event: 'post.platform.published', post: { id: 'post-1', status: 'published' }, platform: { platform: 'twitter', status: 'published' } });
+  const result = a.ingestWebhook({ rawBody: raw, signature: signed(raw) });
+  assert.equal(result.state, 'BROADCAST');
+  assert.equal(s.lifecycle.get(s.proposal.proposalId).state, 'BROADCAST');
+});
+
 test('scheduled execution is correlated before publication', async () => {
   const s = setup();
   const proposal = { ...s.proposal, scheduledFor: new Date(2000000).toISOString() };
   proposal.proposalHash = proposalHash(proposal);
-  s.lifecycle.get(s.proposal.proposalId);
-  // Rebuild the lifecycle record with the scheduled proposal hash for this isolated test.
   const file = tempStore();
   const lifecycle = new PersistentLifecycle(file, { clock: () => s.clock.value });
   lifecycle.createProposal(proposal);
