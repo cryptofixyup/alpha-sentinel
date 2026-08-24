@@ -56,5 +56,8 @@ jobs:
       - name: Run JavaScript security and lifecycle tests
         run: node --test tests/security-boundary.test.js tests/daemon-lifecycle.test.js tests/lifecycle.test.js
 
+      - name: Run Zernio Router Adapter v1 invariants
+        run: node --test tests/zernio-router-v1-verified.test.js
+
       - name: Run lightweight benchmark smoke test
         run: python benchmark_mobile.py --iterations 5
