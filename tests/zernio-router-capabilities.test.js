@@ -1,0 +1,16 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { PersistentLifecycle } = require('../state/persistent-lifecycle');
+const { ZernioRouterAdapter, proposalHash, sha256 } = require('../core/zernio-router-adapter');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+function store() { return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'alpha-sentinel-zernio-cap-')), 'lifecycle.log'); }
+function proposal(extra = {}) { const p = { proposalId: crypto.randomUUID(), content: 'capability test', platforms: [{ platform: 'twitter', accountId: 'acct-a' }], timezone: 'UTC', ...extra }; p.proposalHash = proposalHash(p); return p; }
+function transport() { return { calls: [], async get(route, options) { this.calls.push(['GET', route, options]); return route.startsWith('/posts/') ? { post: { _id: 'post-1', status: 'published' } } : { accounts: [{ _id: 'acct-a', platform: 'twitter' }] }; }, async post(route, options) { this.calls.push(['POST', route, options]); if (route === '/tools/validate/post') return { valid: true }; if (route === '/tools/validate/media') return { valid: true }; return { post: { _id: 'post-1', status: options.body?.scheduledFor ? 'scheduled' : options.body?.publishNow ? 'published' : 'draft' } }; } }; }
+function approved() { const clock = { value: 0 }; const lifecycle = new PersistentLifecycle(store(), { clock: () => clock.value }); const p = proposal({ expiresAt: new Date(1000000).toISOString() }); lifecycle.createProposal(p); lifecycle.transition(p.proposalId, 'HASHED'); lifecycle.bindTransaction(p.proposalId, 'tx'); lifecycle.recordSimulation(p.proposalId, 'tx', { success: true }); lifecycle.startTimelock(p.proposalId, 1); clock.value = 1; lifecycle.recordSimulation(p.proposalId, 'tx', { success: true, phase: 'resimulation' }); lifecycle.recordValidation(p.proposalId, p.proposalHash, { valid: true, validationHash: sha256({ valid: true }) }); lifecycle.approve(p.proposalId, 'approval'); return { lifecycle, p, clock }; }
+
+test('readAccounts, createDraft and getExecutionStatus use only their allowlisted routes', async () => { const s = approved(); const t = transport(); const a = new ZernioRouterAdapter({ lifecycle: s.lifecycle, transport: t, webhookSecret: 'secret', clock: () => s.clock.value }); await a.readAccounts({ profileId: 'profile-a' }); await a.createDraft(s.p); await a.getExecutionStatus('post-1'); assert.deepEqual(t.calls.map((x) => x[1]), ['/accounts', '/posts', '/posts/post-1']); assert.equal(t.calls[1][2].body.isDraft, true); });
+test('scheduleApproved is an explicit approved execution path', async () => { const p = proposal({ scheduledFor: new Date(2000000).toISOString() }); const lifecycle = { get: () => ({ proposal: p, state: 'APPROVED', timelockUntil: 0, approval: { proposalHash: p.proposalHash }, validationValid: true, validationBindingHash: 'v' }) }; const t = transport(); const a = new ZernioRouterAdapter({ lifecycle, transport: t, webhookSecret: 'secret', clock: () => 2 }); const result = await a.scheduleApproved(p); assert.equal(result.post.status, 'scheduled'); assert.equal(t.calls[0][2].body.scheduledFor, p.scheduledFor); assert.equal(t.calls[0][2].body.publishNow, undefined); });
