@@ -22,6 +22,7 @@ class AuthorizationDaemon {
   }
   approve({ actor, now = Date.now() }) {
     const current = this.lifecycle.snapshot();
+    if (current.lifecycle !== STATES.TIMED_WAIT) throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.APPROVED}`);
     if (!Number.isInteger(current.metadata.unlockAt)) throw new Error('TIMELOCK_NOT_CONFIGURED');
     if (now < current.metadata.unlockAt) throw new Error('TIMELOCK_ACTIVE');
     return this.lifecycle.advance({ actor, to: STATES.APPROVED, metadata: { approvedAt: now } });
