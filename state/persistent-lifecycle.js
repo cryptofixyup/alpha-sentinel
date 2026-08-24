@@ -102,6 +102,14 @@ class PersistentLifecycle {
     return this.get(proposalId);
   }
 
+  findByExternalPostId(postId) {
+    if (typeof postId !== 'string' || !postId) return null;
+    for (const record of this.records.values()) {
+      if (record.externalExecution?.postId === postId) return this.get(record.proposal.proposalId);
+    }
+    return null;
+  }
+
   recordWebhook(proposalId, proposalHash, { eventId, event, postId, status } = {}) {
     const record = this._require(proposalId);
     if (record.proposal.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
