@@ -9,13 +9,27 @@ function stable(v){
   return `{${Object.keys(v).sort().map(k=>`${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`;
 }
 function signingBytes(result){const unsigned={...result};delete unsigned.signature;return Buffer.from(stable(unsigned));}
+function claimDir(resultJournalPath){return `${path.resolve(resultJournalPath)}.claims`;}
+function claimPath(resultJournalPath,resultId){const digest=crypto.createHash('sha256').update(resultId).digest('hex');return path.join(claimDir(resultJournalPath),`${digest}.claim`);}
 function loadSeenResultIds(resultJournalPath){
-  if(!resultJournalPath||!fs.existsSync(resultJournalPath))return new Set();
+  if(!resultJournalPath)return new Set();
   const seen=new Set();
-  for(const line of fs.readFileSync(resultJournalPath,'utf8').split('\n').filter(Boolean)){const e=JSON.parse(line);if(typeof e.resultId!=='string'||!e.resultId)throw new Error('RESULT_JOURNAL_INVALID');seen.add(e.resultId);}
+  if(fs.existsSync(resultJournalPath))for(const line of fs.readFileSync(resultJournalPath,'utf8').split('\n').filter(Boolean)){const e=JSON.parse(line);if(typeof e.resultId!=='string'||!e.resultId)throw new Error('RESULT_JOURNAL_INVALID');seen.add(e.resultId);}
+  const dir=claimDir(resultJournalPath);
+  if(fs.existsSync(dir))for(const file of fs.readdirSync(dir)){if(!file.endsWith('.claim'))continue;const id=fs.readFileSync(path.join(dir,file),'utf8');if(!id)throw new Error('RESULT_CLAIM_INVALID');seen.add(id);}
   return seen;
 }
-function persistResultId(resultJournalPath,resultId){
+function atomicClaimResultId(resultJournalPath,resultId){
+  if(!resultJournalPath)return true;
+  const dir=claimDir(resultJournalPath);fs.mkdirSync(dir,{recursive:true});
+  try{
+    const fd=fs.openSync(claimPath(resultJournalPath,resultId),'wx',0o600);
+    try{fs.writeSync(fd,resultId);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    const dirfd=fs.openSync(dir,'r');try{fs.fsyncSync(dirfd);}finally{fs.closeSync(dirfd);}
+    return true;
+  }catch(err){if(err?.code==='EEXIST')return false;throw err;}
+}
+function appendResultJournal(resultJournalPath,resultId){
   if(!resultJournalPath)return;
   fs.mkdirSync(path.dirname(path.resolve(resultJournalPath)),{recursive:true});
   const fd=fs.openSync(resultJournalPath,'a',0o600);
@@ -29,7 +43,8 @@ function verifySignedResult({result,publicKey,lifecycle,now=Date.now,maxAgeMs=30
   let valid=false;try{valid=crypto.verify(null,signingBytes(result),publicKey,Buffer.from(result.signature,'base64url'));}catch{throw new Error('RESULT_SIGNATURE_INVALID');}if(!valid)throw new Error('RESULT_SIGNATURE_INVALID');
   let record;try{record=lifecycle?.get?.(result.proposalId);}catch(err){if(err?.message==='PROPOSAL_NOT_FOUND')throw new Error('RESULT_PROPOSAL_NOT_FOUND');throw err;}if(!record)throw new Error('RESULT_PROPOSAL_NOT_FOUND');
   if(record.proposal.proposalHash!==result.proposalHash)throw new Error('RESULT_PROPOSAL_MISMATCH');const ext=record.externalExecution;if(!ext||ext.postId!==result.postId||ext.requestId!==result.requestId)throw new Error('RESULT_EXECUTION_MISMATCH');const target=record.proposal.platforms.find(x=>x.platform===result.platform&&x.accountId===result.accountId);if(!target)throw new Error('RESULT_TARGET_MISMATCH');
-  persistResultId(resultJournalPath,result.resultId);if(seenResultIds)seenResultIds.add(result.resultId);return Object.freeze({accepted:true,resultId:result.resultId,proposalId:result.proposalId,postId:result.postId,status:result.status});
+  if(resultJournalPath){if(!atomicClaimResultId(resultJournalPath,result.resultId))throw new Error('RESULT_DUPLICATE');appendResultJournal(resultJournalPath,result.resultId);}else{if(seenResultIds)seenResultIds.add(result.resultId);}
+  return Object.freeze({accepted:true,resultId:result.resultId,proposalId:result.proposalId,postId:result.postId,status:result.status});
 }
 function signResult(result,privateKey){const unsigned={...result};delete unsigned.signature;return {...unsigned,signature:crypto.sign(null,signingBytes(unsigned),privateKey).toString('base64url')};}
 module.exports={stable,signingBytes,signResult,verifySignedResult,loadSeenResultIds};
