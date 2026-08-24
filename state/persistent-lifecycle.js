@@ -26,7 +26,7 @@ class PersistentLifecycle {
   createProposal(proposal) {
     if (!proposal || !proposal.proposalId || !proposal.proposalHash) throw new Error('IMMUTABLE_PROPOSAL_REQUIRED');
     if (this.records.has(proposal.proposalId)) throw new Error('PROPOSAL_ALREADY_EXISTS');
-    const record = { proposal: JSON.parse(JSON.stringify(proposal)), state:'CREATED', version:0, transactionBindingHash:null, timelockUntil:null, simulationBindingHash:null, approval:null };
+    const record = { proposal: JSON.parse(JSON.stringify(proposal)), state:'CREATED', version:0, transactionBindingHash:null, timelockUntil:null, simulationBindingHash:null, validationBindingHash:null, validationValid:null, approval:null };
     this.records.set(proposal.proposalId, record);
     this._transition(record, 'CREATED', { proposal: record.proposal });
     return this.get(proposal.proposalId);
@@ -45,6 +45,16 @@ class PersistentLifecycle {
     if (record.state !== 'HASHED') throw new Error('INVALID_TRANSACTION_BINDING_STATE');
     record.transactionBindingHash = transactionBindingHash;
     this._transition(record, 'BUILT', { transactionBindingHash }); return this.get(proposalId);
+  }
+
+  recordValidation(proposalId, proposalHash, { valid, validationHash } = {}) {
+    const record = this._require(proposalId);
+    if (record.proposal.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
+    if (typeof valid !== 'boolean' || !validationHash) throw new Error('VALIDATION_EVIDENCE_REQUIRED');
+    record.validationBindingHash = validationHash;
+    record.validationValid = valid;
+    this._append({ type:'VALIDATION_RECORDED', proposalId, proposalHash, validationHash, valid });
+    return this.get(proposalId);
   }
 
   recordSimulation(proposalId, transactionBindingHash, { success, phase='initial' } = {}) {
@@ -95,25 +105,16 @@ class PersistentLifecycle {
     const previousState=record.state; record.state=nextState; record.version+=1;
     this._append({type:'STATE_TRANSITION',proposalId:record.proposal.proposalId,proposalHash:record.proposal.proposalHash,previousState,nextState,version:record.version,payload});
   }
-  _append(data){
-    const unsigned={timestamp:this.clock(),previousHash:this.lastAuditHash,...data}; const event={...unsigned,eventHash:hash(unsigned)};
-    fs.appendFileSync(this.filePath,`${JSON.stringify(event)}\n`,{encoding:'utf8'}); const fd=fs.openSync(this.filePath,'r'); try{fs.fsyncSync(fd);}finally{fs.closeSync(fd)} this.lastAuditHash=event.eventHash;
-  }
+  _append(data){const unsigned={timestamp:this.clock(),previousHash:this.lastAuditHash,...data};const event={...unsigned,eventHash:hash(unsigned)};fs.appendFileSync(this.filePath,`${JSON.stringify(event)}\n`,{encoding:'utf8'});const fd=fs.openSync(this.filePath,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd)}this.lastAuditHash=event.eventHash;}
   _recover(){
     let previous='GENESIS';
     for(const line of fs.readFileSync(this.filePath,'utf8').split('\n').filter(Boolean)){
       const event=JSON.parse(line); if(event.previousHash!==previous)throw new Error('AUDIT_CHAIN_BROKEN');
       const {eventHash,...unsigned}=event; if(hash(unsigned)!==eventHash)throw new Error('AUDIT_EVENT_TAMPERED'); previous=eventHash;
       let record=this.records.get(event.proposalId);
-      if(!record){
-        record={proposal:event.payload?.proposal||{proposalId:event.proposalId,proposalHash:event.proposalHash},state:event.nextState,version:event.version,transactionBindingHash:null,timelockUntil:null,simulationBindingHash:null,approval:null};
-        this.records.set(event.proposalId,record);
-      } else { record.state=event.nextState; record.version=event.version; }
-      const p=event.payload||{};
-      if(p.transactionBindingHash) record.transactionBindingHash=p.transactionBindingHash;
-      if(p.timelockUntil !== undefined) record.timelockUntil=p.timelockUntil;
-      if(event.nextState==='RE_SIMULATED' && p.transactionBindingHash) record.simulationBindingHash=p.transactionBindingHash;
-      if(event.nextState==='APPROVED' && p.approvalId) record.approval={approvalId:p.approvalId,proposalHash:event.proposalHash,transactionBindingHash:p.transactionBindingHash};
+      if(!record){record={proposal:event.payload?.proposal||{proposalId:event.proposalId,proposalHash:event.proposalHash},state:event.nextState||'CREATED',version:event.version||0,transactionBindingHash:null,timelockUntil:null,simulationBindingHash:null,validationBindingHash:null,validationValid:null,approval:null};this.records.set(event.proposalId,record);} 
+      if(event.type==='STATE_TRANSITION'){record.state=event.nextState;record.version=event.version;const p=event.payload||{};if(p.transactionBindingHash)record.transactionBindingHash=p.transactionBindingHash;if(p.timelockUntil!==undefined)record.timelockUntil=p.timelockUntil;if(event.nextState==='RE_SIMULATED'&&p.transactionBindingHash)record.simulationBindingHash=p.transactionBindingHash;if(event.nextState==='APPROVED'&&p.approvalId)record.approval={approvalId:p.approvalId,proposalHash:event.proposalHash,transactionBindingHash:p.transactionBindingHash};}
+      if(event.type==='VALIDATION_RECORDED'){record.validationBindingHash=event.validationHash;record.validationValid=event.valid;}
     }
     this.lastAuditHash=previous;
   }
