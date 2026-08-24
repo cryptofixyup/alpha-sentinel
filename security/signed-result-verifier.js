@@ -25,7 +25,11 @@ function verifySignedResult({result,publicKey,lifecycle,now=Date.now,maxAgeMs=30
   let valid=false;
   try{valid=crypto.verify(null,signingBytes(result),publicKey,Buffer.from(result.signature,'base64url'));}catch{throw new Error('RESULT_SIGNATURE_INVALID');}
   if(!valid)throw new Error('RESULT_SIGNATURE_INVALID');
-  const record=lifecycle?.get?.(result.proposalId);
+  let record;
+  try{record=lifecycle?.get?.(result.proposalId);}catch(err){
+    if(err?.message==='PROPOSAL_NOT_FOUND')throw new Error('RESULT_PROPOSAL_NOT_FOUND');
+    throw err;
+  }
   if(!record)throw new Error('RESULT_PROPOSAL_NOT_FOUND');
   if(record.proposal.proposalHash!==result.proposalHash)throw new Error('RESULT_PROPOSAL_MISMATCH');
   const ext=record.externalExecution;
