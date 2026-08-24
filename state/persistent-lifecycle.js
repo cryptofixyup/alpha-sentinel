@@ -26,7 +26,7 @@ class PersistentLifecycle {
   createProposal(proposal) {
     if (!proposal || !proposal.proposalId || !proposal.proposalHash) throw new Error('IMMUTABLE_PROPOSAL_REQUIRED');
     if (this.records.has(proposal.proposalId)) throw new Error('PROPOSAL_ALREADY_EXISTS');
-    const record = { proposal: JSON.parse(JSON.stringify(proposal)), state:'CREATED', version:0, transactionBindingHash:null, timelockUntil:null, simulationBindingHash:null, validationBindingHash:null, validationValid:null, approval:null };
+    const record = { proposal: JSON.parse(JSON.stringify(proposal)), state:'CREATED', version:0, transactionBindingHash:null, timelockUntil:null, simulationBindingHash:null, validationBindingHash:null, validationValid:null, approval:null, externalExecution:null, processedWebhookIds:[] };
     this.records.set(proposal.proposalId, record);
     this._transition(record, 'CREATED', { proposal: record.proposal });
     return this.get(proposal.proposalId);
@@ -88,6 +88,39 @@ class PersistentLifecycle {
     this._transition(record,'APPROVED',{approvalId,transactionBindingHash:record.transactionBindingHash}); return this.get(proposalId);
   }
 
+  recordExternalExecution(proposalId, proposalHash, { postId, requestId, mode, status } = {}) {
+    const record = this._require(proposalId);
+    if (record.proposal.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
+    if (record.state !== 'APPROVED') {
+      if (record.state === 'BROADCAST' && record.externalExecution?.postId === postId && record.externalExecution?.requestId === requestId) return this.get(proposalId);
+      throw new Error('EXTERNAL_EXECUTION_REQUIRES_APPROVAL');
+    }
+    if (typeof postId !== 'string' || !postId) throw new Error('EXTERNAL_POST_ID_REQUIRED');
+    if (typeof requestId !== 'string' || !requestId) throw new Error('EXTERNAL_REQUEST_ID_REQUIRED');
+    record.externalExecution = Object.freeze({ postId, requestId, mode: mode || 'publish', status: status || null, proposalHash });
+    this._transition(record, 'BROADCAST', { externalExecution: record.externalExecution }, true);
+    return this.get(proposalId);
+  }
+
+  recordWebhook(proposalId, proposalHash, { eventId, event, postId, status } = {}) {
+    const record = this._require(proposalId);
+    if (record.proposal.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
+    if (typeof eventId !== 'string' || !eventId) throw new Error('WEBHOOK_EVENT_ID_REQUIRED');
+    if (record.processedWebhookIds.includes(eventId)) return { duplicate: true, record: this.get(proposalId) };
+    if (!record.externalExecution || record.externalExecution.postId !== postId) throw new Error('WEBHOOK_POST_MISMATCH');
+
+    record.processedWebhookIds.push(eventId);
+    this._append({ type:'WEBHOOK_RECORDED', proposalId, proposalHash, eventId, event, postId, status: status || null });
+
+    if (event === 'post.published' || event === 'post.platform.published') {
+      if (record.state === 'BROADCAST') this._transition(record, 'CONFIRMED', { eventId, postId, status: status || 'published' });
+      if (record.state === 'CONFIRMED') this._transition(record, 'VERIFIED', { eventId, postId, status: status || 'published' });
+    } else if (event === 'post.failed' || event === 'post.cancelled') {
+      if (record.state === 'BROADCAST') this._transition(record, 'REJECTED', { eventId, postId, status: status || 'failed' });
+    }
+    return { duplicate: false, record: this.get(proposalId) };
+  }
+
   get(proposalId) { return Object.freeze(JSON.parse(JSON.stringify(this._require(proposalId)))); }
 
   verifyAuditChain() {
@@ -100,8 +133,10 @@ class PersistentLifecycle {
   }
 
   _require(id){const record=this.records.get(id);if(!record)throw new Error('PROPOSAL_NOT_FOUND');return record;}
-  _transition(record,nextState,payload){
-    if(record.state!==nextState&&!(TRANSITIONS[record.state]||[]).includes(nextState)) throw new Error(`INVALID_TRANSITION:${record.state}->${nextState}`);
+  _transition(record,nextState,payload,internal=false){
+    const normal = record.state===nextState || (TRANSITIONS[record.state]||[]).includes(nextState);
+    const externalBroadcast = internal && record.state==='APPROVED' && nextState==='BROADCAST';
+    if(!normal && !externalBroadcast) throw new Error(`INVALID_TRANSITION:${record.state}->${nextState}`);
     const previousState=record.state; record.state=nextState; record.version+=1;
     this._append({type:'STATE_TRANSITION',proposalId:record.proposal.proposalId,proposalHash:record.proposal.proposalHash,previousState,nextState,version:record.version,payload});
   }
@@ -112,9 +147,10 @@ class PersistentLifecycle {
       const event=JSON.parse(line); if(event.previousHash!==previous)throw new Error('AUDIT_CHAIN_BROKEN');
       const {eventHash,...unsigned}=event; if(hash(unsigned)!==eventHash)throw new Error('AUDIT_EVENT_TAMPERED'); previous=eventHash;
       let record=this.records.get(event.proposalId);
-      if(!record){record={proposal:event.payload?.proposal||{proposalId:event.proposalId,proposalHash:event.proposalHash},state:event.nextState||'CREATED',version:event.version||0,transactionBindingHash:null,timelockUntil:null,simulationBindingHash:null,validationBindingHash:null,validationValid:null,approval:null};this.records.set(event.proposalId,record);} 
-      if(event.type==='STATE_TRANSITION'){record.state=event.nextState;record.version=event.version;const p=event.payload||{};if(p.transactionBindingHash)record.transactionBindingHash=p.transactionBindingHash;if(p.timelockUntil!==undefined)record.timelockUntil=p.timelockUntil;if(event.nextState==='RE_SIMULATED'&&p.transactionBindingHash)record.simulationBindingHash=p.transactionBindingHash;if(event.nextState==='APPROVED'&&p.approvalId)record.approval={approvalId:p.approvalId,proposalHash:event.proposalHash,transactionBindingHash:p.transactionBindingHash};}
+      if(!record){record={proposal:event.payload?.proposal||{proposalId:event.proposalId,proposalHash:event.proposalHash},state:event.nextState||'CREATED',version:event.version||0,transactionBindingHash:null,timelockUntil:null,simulationBindingHash:null,validationBindingHash:null,validationValid:null,approval:null,externalExecution:null,processedWebhookIds:[]};this.records.set(event.proposalId,record);}
+      if(event.type==='STATE_TRANSITION'){record.state=event.nextState;record.version=event.version;const p=event.payload||{};if(p.transactionBindingHash)record.transactionBindingHash=p.transactionBindingHash;if(p.timelockUntil!==undefined)record.timelockUntil=p.timelockUntil;if(event.nextState==='RE_SIMULATED'&&p.transactionBindingHash)record.simulationBindingHash=p.transactionBindingHash;if(event.nextState==='APPROVED'&&p.approvalId)record.approval={approvalId:p.approvalId,proposalHash:event.proposalHash,transactionBindingHash:p.transactionBindingHash};if(event.nextState==='BROADCAST'&&p.externalExecution)record.externalExecution=p.externalExecution;}
       if(event.type==='VALIDATION_RECORDED'){record.validationBindingHash=event.validationHash;record.validationValid=event.valid;}
+      if(event.type==='WEBHOOK_RECORDED'&&event.eventId&&!record.processedWebhookIds.includes(event.eventId))record.processedWebhookIds.push(event.eventId);
     }
     this.lastAuditHash=previous;
   }
