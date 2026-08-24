@@ -34,6 +34,24 @@ function proposalHash(proposal) {
   return sha256(unsigned);
 }
 
+function deterministicRequestId(proposalHashValue) {
+  const hex = crypto.createHash('sha256').update(`zernio:${proposalHashValue}`).digest('hex').slice(0, 32).split('');
+  hex[12] = '4';
+  hex[16] = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  const h = hex.join('');
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
+function extractPostId(result) {
+  const postId = result?.post?._id || result?.post?.id || result?.existingPost?._id || result?.existingPost?.id;
+  if (typeof postId !== 'string' || !postId) throw new Error('ZERNIO_POST_ID_MISSING');
+  return postId;
+}
+
+function extractWebhookPostId(payload) {
+  return payload?.post?.id || payload?.post?._id || payload?.postId || payload?.data?.post?.id || payload?.data?.post?._id || payload?.data?.postId || null;
+}
+
 function assertProposal(proposal) {
   if (!proposal || typeof proposal !== 'object') throw new Error('INVALID_PROPOSAL');
   for (const key of ['proposalId', 'proposalHash', 'content', 'platforms']) {
@@ -140,17 +158,37 @@ class ZernioRouterAdapter {
   async scheduleApproved(proposal) {
     this.#assertApproved(proposal);
     if (typeof proposal.scheduledFor !== 'string' || !proposal.scheduledFor) throw new Error('SCHEDULE_REQUIRED');
-    return this.#transport.post('/posts', { body: postBody(proposal, 'schedule'), requestId: crypto.randomUUID() });
+    const requestId = deterministicRequestId(proposal.proposalHash);
+    const result = await this.#transport.post('/posts', { body: postBody(proposal, 'schedule'), requestId });
+    const postId = extractPostId(result);
+    this.#lifecycle.recordExternalExecution(proposal.proposalId, proposal.proposalHash, { postId, requestId, mode: 'schedule', status: 'scheduled' });
+    return result;
   }
 
   async executeApproved(proposal) {
     this.#assertApproved(proposal);
-    return this.#transport.post('/posts', { body: postBody(proposal, 'publish'), requestId: crypto.randomUUID() });
+    const requestId = deterministicRequestId(proposal.proposalHash);
+    const result = await this.#transport.post('/posts', { body: postBody(proposal, 'publish'), requestId });
+    const postId = extractPostId(result);
+    this.#lifecycle.recordExternalExecution(proposal.proposalId, proposal.proposalHash, { postId, requestId, mode: 'publish', status: 'published' });
+    return result;
   }
 
-  getExecutionStatus(postId) {
+  getExecutionStatus(postId, { proposalId } = {}) {
     if (typeof postId !== 'string' || !postId) throw new Error('POST_ID_REQUIRED');
-    return this.#transport.get(`/posts/${encodeURIComponent(postId)}`);
+    return this.#transport.get(`/posts/${encodeURIComponent(postId)}`).then((result) => {
+      if (proposalId && typeof this.#lifecycle.recordWebhook === 'function') {
+        const status = result?.post?.status;
+        const event = status === 'published' ? 'post.published' : status === 'failed' ? 'post.failed' : null;
+        if (event) {
+          const syntheticEventId = `status:${postId}:${status}`;
+          try { this.#lifecycle.recordWebhook(proposalId, this.#lifecycle.get(proposalId).proposal.proposalHash, { eventId: syntheticEventId, event, postId, status }); } catch (error) {
+            if (!/WEBHOOK_POST_MISMATCH|PROPOSAL_HASH_MISMATCH/.test(error.message)) throw error;
+          }
+        }
+      }
+      return result;
+    });
   }
 
   ingestWebhook({ rawBody, signature, eventId }) {
@@ -167,9 +205,22 @@ class ZernioRouterAdapter {
     if (typeof id !== 'string' || !id) throw new Error('WEBHOOK_EVENT_ID_REQUIRED');
     if (this.#processedWebhookIds.has(id)) return { accepted: true, duplicate: true, id };
 
+    const postId = extractWebhookPostId(payload);
+    if (postId && typeof this.#lifecycle.findByExternalPostId === 'function') {
+      const match = this.#lifecycle.findByExternalPostId(postId);
+      if (match) {
+        const proposalHashValue = match.proposal.proposalHash;
+        const result = this.#lifecycle.recordWebhook(match.proposal.proposalId, proposalHashValue, { eventId: id, event: payload.event, postId, status: payload?.post?.status || payload?.status });
+        if (result.duplicate) return { accepted: true, duplicate: true, id, proposalId: match.proposal.proposalId };
+        this.#processedWebhookIds.add(id);
+        this.#webhookEvents.set(id, Object.freeze({ id, event: payload.event, payload: clone(payload), receivedAt: this.#clock() }));
+        return { accepted: true, duplicate: false, id, event: payload.event, proposalId: match.proposal.proposalId, state: result.record.state };
+      }
+    }
+
     this.#processedWebhookIds.add(id);
     this.#webhookEvents.set(id, Object.freeze({ id, event: payload.event, payload: clone(payload), receivedAt: this.#clock() }));
-    return { accepted: true, duplicate: false, id, event: payload.event };
+    return { accepted: true, duplicate: false, id, event: payload.event, correlated: false };
   }
 
   #assertApproved(proposal) {
@@ -184,4 +235,4 @@ class ZernioRouterAdapter {
   }
 }
 
-module.exports = { ZernioRouterAdapter, CAPABILITIES, createZernioTransport, stable, sha256, proposalHash };
+module.exports = { ZernioRouterAdapter, CAPABILITIES, createZernioTransport, stable, sha256, proposalHash, deterministicRequestId };
