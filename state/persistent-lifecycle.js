@@ -120,7 +120,7 @@ class PersistentLifecycle {
     record.processedWebhookIds.push(eventId);
     this._append({ type:'WEBHOOK_RECORDED', proposalId, proposalHash, eventId, event, postId, status: status || null });
 
-    if (event === 'post.published' || event === 'post.platform.published') {
+    if (event === 'post.published') {
       if (record.state === 'BROADCAST') this._transition(record, 'CONFIRMED', { eventId, postId, status: status || 'published' });
       if (record.state === 'CONFIRMED') this._transition(record, 'VERIFIED', { eventId, postId, status: status || 'published' });
     } else if (event === 'post.failed' || event === 'post.cancelled') {
