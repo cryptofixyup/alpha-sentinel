@@ -1,0 +1,20 @@
+name: Zernio Router Adapter v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feat/zernio-router-adapter-v1-mainline'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  zernio-router-v1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/zernio-router-v1-verified.test.js
