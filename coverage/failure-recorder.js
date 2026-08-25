@@ -5,7 +5,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function canonicalJson(value) {
-  return JSON.stringify(value, Object.keys(value).sort());
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function failureId(failure) {
@@ -37,7 +41,7 @@ function recordFailure({ rootDir, contract, probe, observation, evaluation }) {
 
 function regressionTestSource(fixture) {
   const encoded = JSON.stringify(fixture, null, 2);
-  return `'use strict';\n\nconst test = require('node:test');\nconst assert = require('node:assert/strict');\n\nconst fixture = ${encoded};\n\ntest(${JSON.stringify(`regression ${fixture.failure_id}`)}, () => {\n  assert.equal(fixture.actual.executionReached, true);\n  assert.equal(fixture.expected.executionReached, false);\n});\n`;
+  return `'use strict';\n\nconst test = require('node:test');\nconst assert = require('node:assert/strict');\nconst { evaluateUnapprovedExecution } = require('../../coverage/contract');\n\nconst fixture = ${encoded};\n\ntest(${JSON.stringify(`regression ${fixture.failure_id}`)}, () => {\n  const evaluation = evaluateUnapprovedExecution(fixture.observation);\n  assert.equal(evaluation.status, 'VIOLATION');\n});\n`;
 }
 
 module.exports = { canonicalJson, failureId, recordFailure, regressionTestSource };
