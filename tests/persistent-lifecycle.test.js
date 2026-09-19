@@ -10,8 +10,9 @@ const { PersistentLifecycle, canonical } = require('../state/persistent-lifecycl
 const { AuditLog } = require('../state/audit-log');
 
 function fixture() {
+  const filePath = db();
   const proposal = { actor: 'policy', transition: { type: 'set', payload: { key: 'x', value: 1 } } };
-  return { proposal, hash: crypto.createHash('sha256').update(canonical(proposal)).digest('hex') };
+  return { filePath, proposal, hash: crypto.createHash('sha256').update(canonical(proposal)).digest('hex') };
 }
 function db() { return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'alpha-sentinel-')), 'audit.jsonl'); }
 function advanceClock(start = 1000) { let now = start; return { now: () => now, advance: seconds => { now += seconds; } }; }
