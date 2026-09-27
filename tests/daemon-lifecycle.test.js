@@ -60,6 +60,21 @@ test('daemon authorization remains policy-controlled', () => {
   assert.equal(d.snapshot().lifecycle, STATES.PROPOSED);
 });
 
+test('agent capability cannot become lifecycle authority through a permissive callback', () => {
+  const policy = new Policy(() => true);
+  const state = new DurableState();
+  const d = new AuthorizationDaemon({
+    policy, validator: new Validator(), state,
+    routerAdapter: { construct: () => ({}) },
+    simulationBoundary: { simulate: () => ({ ok: true }) },
+  });
+  d.propose({ proposalId: 'agent-proposal', proposalHash: 'hash', payload: {} });
+  for (const kind of ['agent', 'model']) {
+    assert.throws(() => d.authorize({ actor: { kind, id: 'untrusted' } }), /POLICY_DENIED/);
+  }
+  assert.equal(d.snapshot().lifecycle, STATES.PROPOSED);
+});
+
 test('timelock cannot be skipped or approved before unlock', () => {
   const d = daemon();
   d.propose({ proposalId: 'p-4', proposalHash: 'hash-p-4', payload: {} });
