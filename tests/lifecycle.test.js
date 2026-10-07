@@ -32,7 +32,7 @@ test('proposal creation is durable and starts at PROPOSED', () => {
 test('canonical lifecycle accepts only the declared forward transitions', () => {
   const { coordinator } = makeCoordinator();
   coordinator.propose({ proposalId: 'p-2' });
-  for (const to of [STATES.AUTHORIZED, STATES.VALIDATED, STATES.TIMED_WAIT, STATES.APPROVED, STATES.BOUND, STATES.SIMULATED, STATES.EXECUTED, STATES.VERIFIED]) {
+  for (const to of [STATES.AUTHORIZED, STATES.VALIDATED, STATES.BOUND, STATES.SIMULATED, STATES.TIMED_WAIT, STATES.RE_SIMULATED, STATES.APPROVED, STATES.EXECUTED, STATES.VERIFIED]) {
     coordinator.advance({ actor: 'operator', to });
   }
   assert.equal(coordinator.snapshot().lifecycle, STATES.VERIFIED);
@@ -66,7 +66,7 @@ test('timelock cannot be skipped and approval cannot precede it', () => {
 test('restart reconstructs the same lifecycle from the durable journal', () => {
   const { coordinator, journalPath } = makeCoordinator();
   coordinator.propose({ proposalId: 'p-6' });
-  for (const to of [STATES.AUTHORIZED, STATES.VALIDATED, STATES.TIMED_WAIT]) {
+  for (const to of [STATES.AUTHORIZED, STATES.VALIDATED, STATES.BOUND, STATES.SIMULATED, STATES.TIMED_WAIT]) {
     coordinator.advance({ actor: 'operator', to });
   }
   const recoveredState = new DurableState({}, { journalPath });
@@ -76,7 +76,7 @@ test('restart reconstructs the same lifecycle from the durable journal', () => {
     state: recoveredState,
   });
   assert.deepEqual(recovered.snapshot(), coordinator.snapshot());
-  assert.equal(recoveredState.audit().length, 4);
+  assert.equal(recoveredState.audit().length, 6);
 });
 
 test('a second proposal cannot overwrite the durable lifecycle', () => {

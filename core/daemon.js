@@ -17,12 +17,38 @@ class AuthorizationDaemon {
   authorize({ actor }) { return this.lifecycle.advance({ actor, to: STATES.AUTHORIZED }); }
   validate({ actor }) { return this.lifecycle.advance({ actor, to: STATES.VALIDATED }); }
   enterTimelock({ actor, unlockAt }) {
+    const current = this.lifecycle.snapshot();
+    if (current.lifecycle !== STATES.SIMULATED) {
+      throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.TIMED_WAIT}`);
+    }
     if (!Number.isInteger(unlockAt) || unlockAt < 0) throw new Error('INVALID_UNLOCK_TIME');
     return this.lifecycle.advance({ actor, to: STATES.TIMED_WAIT, metadata: { unlockAt } });
   }
+
+  resimulate({ actor, now = Date.now() }) {
+    const current = this.lifecycle.snapshot();
+    if (current.lifecycle !== STATES.TIMED_WAIT) {
+      throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.RE_SIMULATED}`);
+    }
+    if (!Number.isInteger(current.metadata.unlockAt)) throw new Error('TIMELOCK_NOT_CONFIGURED');
+    if (now < current.metadata.unlockAt) throw new Error('TIMELOCK_ACTIVE');
+
+    const tx = current.metadata.boundTransaction;
+    if (!tx || tx.kind !== 'BoundTransaction') throw new Error('BOUND_TRANSACTION_REQUIRED');
+
+    const result = this.simulationBoundary.simulate(tx);
+    return this.lifecycle.advance({
+      actor,
+      to: STATES.RE_SIMULATED,
+      metadata: { resimulation: result, resimulatedAt: now },
+    });
+  }
+
   approve({ actor, now = Date.now() }) {
     const current = this.lifecycle.snapshot();
-    if (current.lifecycle !== STATES.TIMED_WAIT) throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.APPROVED}`);
+    if (current.lifecycle !== STATES.RE_SIMULATED) {
+      throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.APPROVED}`);
+    }
     if (!Number.isInteger(current.metadata.unlockAt)) throw new Error('TIMELOCK_NOT_CONFIGURED');
     if (now < current.metadata.unlockAt) throw new Error('TIMELOCK_ACTIVE');
     return this.lifecycle.advance({ actor, to: STATES.APPROVED, metadata: { approvedAt: now } });
@@ -30,7 +56,7 @@ class AuthorizationDaemon {
 
   bind({ actor }) {
     const current = this.lifecycle.snapshot();
-    if (current.lifecycle !== STATES.APPROVED) throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.BOUND}`);
+    if (current.lifecycle !== STATES.VALIDATED) throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.BOUND}`);
     const tx = this.routerAdapter.construct({
       actor,
       proposalId: current.proposalId,
@@ -50,7 +76,13 @@ class AuthorizationDaemon {
     return result;
   }
 
-  execute({ actor }) { return this.lifecycle.advance({ actor, to: STATES.EXECUTED }); }
+  execute({ actor }) {
+    const current = this.lifecycle.snapshot();
+    if (current.lifecycle !== STATES.APPROVED) {
+      throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.EXECUTED}`);
+    }
+    return this.lifecycle.advance({ actor, to: STATES.EXECUTED });
+  }
   verify({ actor }) { return this.lifecycle.advance({ actor, to: STATES.VERIFIED }); }
   snapshot() { return this.lifecycle.snapshot(); }
 }
