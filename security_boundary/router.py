@@ -39,3 +39,5 @@ def validate_built_transaction(
         raise ValueError("transaction calldata must be 0x-prefixed")
     if tx.value < 0 or tx.gas_limit <= 0 or tx.gas_price_wei < 0 or tx.nonce < 0:
         raise ValueError("invalid transaction numeric field")
+    if tx.gas_price_wei > proposal.gas_price_limit_wei:
+        raise ValueError("transaction gas price exceeds proposal limit")

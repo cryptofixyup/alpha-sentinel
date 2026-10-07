@@ -118,9 +118,21 @@ class TransactionEnvelope:
         return hashlib.sha256(self.canonical().encode("utf-8")).hexdigest()
 
 
+_HEX = frozenset("0123456789abcdefABCDEF")
+
+
+def _is_hex(value: str) -> bool:
+    return all(char in _HEX for char in value)
+
+
 def normalise_address(value: str) -> str:
     value = value.strip()
-    if not value or not value.startswith("0x") or len(value) != 42:
+    if (
+        not value
+        or not value.startswith("0x")
+        or len(value) != 42
+        or not _is_hex(value[2:])
+    ):
         raise ValueError("invalid EVM address")
     return value.lower()
 
@@ -133,5 +145,9 @@ def validate_envelope_shape(tx: Mapping[str, object]) -> None:
     missing = required - set(tx)
     if missing:
         raise ValueError(f"transaction missing fields: {sorted(missing)}")
-    if not isinstance(tx["data"], str) or not tx["data"].startswith("0x"):
+    if (
+        not isinstance(tx["data"], str)
+        or not tx["data"].startswith("0x")
+        or not _is_hex(tx["data"][2:])
+    ):
         raise ValueError("transaction calldata must be 0x-prefixed hex")

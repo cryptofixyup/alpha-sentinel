@@ -204,3 +204,51 @@ def test_no_private_key_is_required_by_boundary():
     source = open("security_boundary/signer.py", encoding="utf-8").read()
     assert "PRIVATE_KEY" not in source
     assert "WALLET_PRIVATE_KEY" not in source
+
+
+def test_non_hex_evm_address_is_rejected():
+    from security_boundary.models import normalise_address
+
+    with pytest.raises(ValueError, match="invalid EVM address"):
+        normalise_address("0x" + ("1" * 39) + "g")
+
+
+def test_non_hex_calldata_is_rejected():
+    from security_boundary.models import validate_envelope_shape
+
+    envelope = {
+        "chain_id": 1,
+        "from": WALLET,
+        "to": ROUTER,
+        "value": 0,
+        "data": "0xNOTHEX",
+        "gas_limit": 150_000,
+        "gas_price_wei": 20_000_000_000,
+        "nonce": 1,
+        "proposal_digest": "0" * 64,
+    }
+
+    with pytest.raises(ValueError, match="0x-prefixed hex"):
+        validate_envelope_shape(envelope)
+
+
+def test_transaction_gas_price_cannot_exceed_proposal_limit():
+    class OverCapRouter(RouterAdapter):
+        def build(self, proposal):
+            return TransactionEnvelope(
+                chain_id=proposal.chain_id,
+                from_address=proposal.wallet,
+                to_address=proposal.router,
+                value=0,
+                data="0x1234",
+                gas_limit=150_000,
+                gas_price_wei=proposal.gas_price_limit_wei + 1,
+                nonce=1,
+                proposal_digest=proposal.digest(),
+            )
+
+    result = make_pipeline(OverCapRouter()).execute(intent(), 0)
+
+    assert result.status == ProposalStatus.FAILED
+    assert "gas price exceeds proposal limit" in result.reason
+    assert result.signed_transaction is None
