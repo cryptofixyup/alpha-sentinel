@@ -23,9 +23,24 @@ Run the offline boundary tests:
 python -m unittest discover -s tests -p test_typesafe_labeler.py -v
 ```
 
-The tests use a mocked SDK module and client. They verify application boundary
-behavior, not actual SDK compatibility or model accuracy. A real SDK installation
-and representative labeled evaluation are required before production enablement.
-No API calls are needed to run these tests.
+Install the pinned optional dependency, then run all TypeSafe checks:
+
+```bash
+python -m pip install -r requirements-typesafe.txt
+python -m unittest discover -s tests -p 'test_typesafe*.py' -v
+```
+
+Boundary tests use mocked clients. SDK compatibility tests use the installed
+0.7.4 SDK with an in-memory HTTP transport to check real request serialization
+and response decoding. CI installs the pinned dependency and runs both.
+No network calls or API credentials are needed for these tests.
+
+`fixtures/typesafe/evaluation.json` contains 18 synthetic cases with provisional
+expected labels and rationales: three per category, including ambiguous and
+instruction-override cases. These are an initial review set, not model results
+or a calibrated benchmark. Review labels before a bounded live evaluation;
+record per-category errors, confusion, unknown rates, actual model version,
+latency, token usage, and service failures. No model accuracy is claimed here.
+The SDK pin does not pin the remote model alias.
 
 API reference: https://docs.typesafe.ai/sdk/python
