@@ -24,17 +24,15 @@ function daemon({ build, simulate } = {}) {
   return new AuthorizationDaemon({ policy, validator, state, routerAdapter, simulationBoundary });
 }
 
-function approve(d, proposalId, proposalHash = `hash-${proposalId}`) {
+function validateProposal(d, proposalId, proposalHash = `hash-${proposalId}`) {
   d.propose({ proposalId, proposalHash, payload: { action: 'test' } });
   d.authorize({ actor: 'operator' });
   d.validate({ actor: 'operator' });
-  d.enterTimelock({ actor: 'operator', unlockAt: 1 });
-  d.approve({ actor: 'operator', now: 1 });
 }
 
 test('daemon uses one canonical durable lifecycle through router and simulation', () => {
   const d = daemon();
-  approve(d, 'p-1');
+  validateProposal(d, 'p-1');
   const bound = d.bind({ actor: 'operator' });
   assert.equal(bound.kind, 'BoundTransaction');
   assert.equal(bound.proposalId, 'p-1');
@@ -66,13 +64,15 @@ test('timelock cannot be skipped or approved before unlock', () => {
   d.authorize({ actor: 'operator' });
   d.validate({ actor: 'operator' });
   assert.throws(() => d.approve({ actor: 'operator', now: 1000 }), /INVALID_LIFECYCLE_TRANSITION/);
+  d.bind({ actor: 'operator' });
+  d.simulate({ actor: 'operator' });
   d.enterTimelock({ actor: 'operator', unlockAt: 2000 });
-  assert.throws(() => d.approve({ actor: 'operator', now: 1999 }), /TIMELOCK_ACTIVE/);
+  assert.throws(() => d.resimulate({ actor: 'operator', now: 1999 }), /TIMELOCK_ACTIVE/);
 });
 
 test('router binding rejects proposal identity or hash mismatch', () => {
   const d = daemon();
-  approve(d, 'p-5');
+  validateProposal(d, 'p-5');
   const adapter = d.routerAdapter;
   assert.throws(() => adapter.construct({ actor: 'operator', proposalId: 'wrong', proposalHash: 'hash-p-5', payload: {} }), /PROPOSAL_ID_MISMATCH/);
   assert.throws(() => adapter.construct({ actor: 'operator', proposalId: 'p-5', proposalHash: 'wrong-hash', payload: {} }), /PROPOSAL_HASH_MISMATCH/);
@@ -80,13 +80,13 @@ test('router binding rejects proposal identity or hash mismatch', () => {
 
 test('router binding rejects malformed transaction envelopes', () => {
   const d = daemon({ build: () => null });
-  approve(d, 'p-6');
+  validateProposal(d, 'p-6');
   assert.throws(() => d.bind({ actor: 'operator' }), /MALFORMED_TRANSACTION_ENVELOPE/);
 });
 
 test('failed simulation does not advance lifecycle', () => {
   const d = daemon({ simulate: () => ({ ok: false }) });
-  approve(d, 'p-7');
+  validateProposal(d, 'p-7');
   d.bind({ actor: 'operator' });
   assert.throws(() => d.simulate({ actor: 'operator' }), /SIMULATION_FAILED/);
   assert.equal(d.snapshot().lifecycle, STATES.BOUND);
@@ -99,7 +99,7 @@ test('simulation receives only a bound transaction', () => {
     assert.equal(boundTransaction.proposalHash, 'hash-p-8');
     return { ok: true, envelope: boundTransaction.payload };
   }});
-  approve(d, 'p-8');
+  validateProposal(d, 'p-8');
   d.bind({ actor: 'operator' });
   const result = d.simulate({ actor: 'operator' });
   assert.equal(result.ok, true);

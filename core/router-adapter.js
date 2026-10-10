@@ -38,7 +38,7 @@ class RouterAdapter {
 
     const snapshot = this.state.snapshot();
     const lifecycle = snapshot.data.lifecycle;
-    if (!lifecycle || lifecycle.state !== 'APPROVED') throw new Error('ROUTER_BIND_REQUIRES_APPROVAL');
+    if (!lifecycle || lifecycle.state !== 'VALIDATED') throw new Error('ROUTER_BIND_REQUIRES_VALIDATION');
     if (lifecycle.proposalId !== proposalId) throw new Error('PROPOSAL_ID_MISMATCH');
     if (lifecycle.metadata?.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
 

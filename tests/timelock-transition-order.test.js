@@ -38,6 +38,9 @@ test('approval during configured timelock remains blocked by timelock', () => {
   d.propose({ proposalId: 'p-active', proposalHash: 'hash-p-active', payload: {} });
   d.authorize({ actor: 'operator' });
   d.validate({ actor: 'operator' });
+  d.bind({ actor: 'operator' });
+  d.simulate({ actor: 'operator' });
   d.enterTimelock({ actor: 'operator', unlockAt: 2000 });
-  assert.throws(() => d.approve({ actor: 'operator', now: 1999 }), /TIMELOCK_ACTIVE/);
+  assert.throws(() => d.resimulate({ actor: 'operator', now: 1999 }), /TIMELOCK_ACTIVE/);
+  assert.equal(d.snapshot().lifecycle, 'TIMED_WAIT');
 });
