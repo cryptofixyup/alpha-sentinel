@@ -40,7 +40,7 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install project dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt -r requirements-typesafe.txt
 
       - name: Verify no tracked environment secret
         shell: bash
