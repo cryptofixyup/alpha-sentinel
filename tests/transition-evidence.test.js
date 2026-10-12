@@ -31,9 +31,10 @@ function setup() {
   d.simulate({ actor: 'operator' });
   d.enterTimelock({ actor: 'operator', unlockAt: 1000 });
   d.resimulate({ actor: 'operator', now: 1000 });
-  d.approve({ actor: 'operator' });
+  d.approve({ actor: 'operator', now: 999998 });
   const proof = (kind, overrides = {}, key) => signResult({ kind,
-    status: kind === 'execution' ? 'EXECUTED' : 'VERIFIED', timestamp: 1000000,
+    status: kind === 'execution' ? 'EXECUTED' : 'VERIFIED',
+    timestamp: kind === 'execution' ? 999999 : 1000000,
     proposalId: 'p', proposalHash: 'hash-p', transactionDigest: transactionDigest(tx),
     txHash: '0x1234', ...overrides }, key || (kind === 'execution' ? execution : receipt).privateKey);
   return { d, proof, execution, receipt };
@@ -59,6 +60,7 @@ for (const [name, overrides, error] of [
   ['wrong transaction', { transactionDigest: '0'.repeat(64) }, /EVIDENCE_TRANSACTION_MISMATCH/],
   ['stale evidence', { timestamp: 699999 }, /EVIDENCE_STALE/],
   ['future evidence', { timestamp: 1000001 }, /EVIDENCE_STALE/],
+  ['evidence before approval', { timestamp: 999997 }, /EVIDENCE_PRECEDES_TRANSITION/],
   ['failed execution', { status: 'FAILED' }, /EVIDENCE_STATUS_MISMATCH/],
 ]) test(`execution rejects ${name} without state mutation`, () => {
   const { d, proof } = setup();
@@ -80,4 +82,32 @@ test('execution and verification authorities must use independent keys', () => {
   const { TransitionEvidenceVerifier } = require('../security/transition-evidence');
   const { publicKey } = crypto.generateKeyPairSync('ed25519');
   assert.throws(() => new TransitionEvidenceVerifier({ executionPublicKey: publicKey, verificationPublicKey: publicKey }), /INDEPENDENT_VERIFICATION_KEY_REQUIRED/);
+});
+
+test('receipt cannot predate the authenticated execution', () => {
+  const { d, proof } = setup();
+  d.execute({ actor: 'operator', evidence: proof('execution') });
+  assert.throws(() => d.verify({ actor: 'operator', evidence: proof('receipt', { timestamp: 999998 }) }), /EVIDENCE_PRECEDES_TRANSITION/);
+  assert.equal(d.snapshot().lifecycle, 'EXECUTED');
+});
+
+test('same-millisecond outcomes satisfy nondecreasing timestamp ordering', () => {
+  const { d, proof } = setup();
+  d.execute({ actor: 'operator', evidence: proof('execution', { timestamp: 999998 }) });
+  d.verify({ actor: 'operator', evidence: proof('receipt', { timestamp: 999998 }) });
+  assert.equal(d.snapshot().lifecycle, 'VERIFIED');
+});
+
+test('missing prerequisite timestamp fails closed', () => {
+  const { TransitionEvidenceVerifier } = require('../security/transition-evidence');
+  const { d, proof, execution, receipt } = setup();
+  const verifier = new TransitionEvidenceVerifier({ executionPublicKey: execution.publicKey,
+    verificationPublicKey: receipt.publicKey, evidenceClock: () => 1000000 });
+  const current = structuredClone(d.snapshot());
+  delete current.metadata.approvedAt;
+  assert.throws(() => verifier.verify(proof('execution'), current, 'execution'), /EVIDENCE_TRANSITION_TIME_REQUIRED/);
+  d.execute({ actor: 'operator', evidence: proof('execution') });
+  const executed = structuredClone(d.snapshot());
+  delete executed.metadata.executionEvidence.timestamp;
+  assert.throws(() => verifier.verify(proof('receipt'), executed, 'receipt'), /EVIDENCE_TRANSITION_TIME_REQUIRED/);
 });
