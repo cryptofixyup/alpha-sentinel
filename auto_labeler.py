@@ -48,7 +48,7 @@ async def _request_label(client: AsyncOpenAI, text: str) -> str:
     return content.strip()
 
 
-async def label_text(text: str, client: Optional[AsyncOpenAI] = None) -> str:
+async def label_text(text: str, client: Optional[AsyncOpenAI] = None, *, provider: str = "openai") -> str:
     """Label text using the configured model.
 
     A client may be injected for deterministic tests. No API credential is
@@ -57,6 +57,11 @@ async def label_text(text: str, client: Optional[AsyncOpenAI] = None) -> str:
     """
     if not isinstance(text, str) or not text.strip():
         raise ValueError("text must be a non-empty string")
+    if provider == "typesafe":
+        from typesafe_labeler import classify_text
+        return (await classify_text(text, client=client)).label.value
+    if provider != "openai":
+        raise ValueError("provider must be openai or typesafe")
     owned_client = client is None
     active_client = client or _client()
     try:
@@ -64,3 +69,4 @@ async def label_text(text: str, client: Optional[AsyncOpenAI] = None) -> str:
     finally:
         if owned_client:
             await active_client.close()
+

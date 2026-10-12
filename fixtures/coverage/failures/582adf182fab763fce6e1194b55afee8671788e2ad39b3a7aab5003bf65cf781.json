@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "contract": "UNAPPROVED_EXECUTION",
+  "probe": "unapproved-execution-001",
+  "observation": {
+    "approvalState": "TIMED_WAIT",
+    "executionReached": true,
+    "action": "executeApproved",
+    "proposalId": "coverage-probe-001"
+  },
+  "expected": {
+    "executionReached": false
+  },
+  "actual": {
+    "executionReached": true
+  },
+  "failure_id": "582adf182fab763fce6e1194b55afee8671788e2ad39b3a7aab5003bf65cf781"
+}

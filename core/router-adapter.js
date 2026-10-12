@@ -1,36 +1,58 @@
 'use strict';
 
-const crypto = require('node:crypto');
-
-class RouterAdapter {
-  constructor({ policy, validator, state }) {
-    this.policy = policy;
-    this.validator = validator;
-    this.state = state;
-  }
-
-  construct(proposal) {
-    if (!proposal || typeof proposal !== 'object') throw new Error('INVALID_PROPOSAL');
-    const canonical = JSON.stringify({ actor: proposal.actor, transition: proposal.transition });
-    const expectedHash = crypto.createHash('sha256').update(canonical).digest('hex');
-    if (proposal.hash !== expectedHash) throw new Error('PROPOSAL_HASH_MISMATCH');
-
-    this.policy.authorize({ actor: proposal.actor, transition: proposal.transition });
-    const validated = this.validator.validate({ state: this.state.snapshot(), transition: proposal.transition });
-
-    return new BoundTransaction({
-      proposalHash: proposal.hash,
-      validatedTransition: validated,
-    });
+class BoundTransaction {
+  constructor({ proposalId, payload, proposalHash }) {
+    if (!proposalId || typeof proposalId !== 'string') throw new Error('PROPOSAL_ID_REQUIRED');
+    if (!proposalHash || typeof proposalHash !== 'string') throw new Error('PROPOSAL_HASH_REQUIRED');
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('MALFORMED_TRANSACTION_ENVELOPE');
+    }
+    this.kind = 'BoundTransaction';
+    this.proposalId = proposalId;
+    this.payload = Object.freeze(structuredClone(payload));
+    this.proposalHash = proposalHash;
+    Object.freeze(this);
   }
 }
 
-class BoundTransaction {
-  constructor({ proposalHash, validatedTransition }) {
-    this.kind = 'BoundTransaction';
-    this.proposalHash = proposalHash;
-    this.validatedTransition = validatedTransition;
-    Object.freeze(this);
+/** Transaction construction only. No signing, wallet, or broadcast capability. */
+class RouterAdapter {
+  constructor({ policy, validator, state, build }) {
+    if (!policy || typeof policy.authorize !== 'function') throw new TypeError('policy required');
+    if (!validator || typeof validator.validate !== 'function') throw new TypeError('validator required');
+    if (!state || typeof state.snapshot !== 'function') throw new TypeError('state required');
+    if (typeof build !== 'function') throw new TypeError('build required');
+    this.policy = policy;
+    this.validator = validator;
+    this.state = state;
+    this.build = build;
+  }
+
+  construct({ actor, proposalId, proposalHash, payload }) {
+    if (!proposalId || typeof proposalId !== 'string' || !proposalHash || typeof proposalHash !== 'string') {
+      throw new Error('PROPOSAL_ID_AND_HASH_REQUIRED');
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('MALFORMED_TRANSACTION_ENVELOPE');
+    }
+
+    const snapshot = this.state.snapshot();
+    const lifecycle = snapshot.data.lifecycle;
+    if (!lifecycle || lifecycle.state !== 'VALIDATED') throw new Error('ROUTER_BIND_REQUIRES_VALIDATION');
+    if (lifecycle.proposalId !== proposalId) throw new Error('PROPOSAL_ID_MISMATCH');
+    if (lifecycle.metadata?.proposalHash !== proposalHash) throw new Error('PROPOSAL_HASH_MISMATCH');
+
+    const authorized = this.policy.authorize({ actor, transition: { type: 'bind', proposalId, proposalHash } });
+    this.validator.validate({
+      state: snapshot,
+      transition: { type: 'set', expectedVersion: snapshot.version, payload: { key: 'bound', value: true } },
+    });
+
+    const transaction = this.build({ proposalId, proposalHash, payload, actor: authorized.actor });
+    if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
+      throw new Error('MALFORMED_TRANSACTION_ENVELOPE');
+    }
+    return new BoundTransaction({ proposalId, proposalHash, payload: transaction });
   }
 }
 

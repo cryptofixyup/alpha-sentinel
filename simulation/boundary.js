@@ -1,17 +1,17 @@
 'use strict';
 
-const { BoundTransaction } = require('../core/router-adapter');
-
 class SimulationBoundary {
+  constructor(simulator = null) {
+    this.simulator = simulator || (() => ({ ok: true }));
+  }
+
   simulate(boundTransaction) {
-    if (!(boundTransaction instanceof BoundTransaction) || boundTransaction.kind !== 'BoundTransaction') {
+    if (!boundTransaction || boundTransaction.kind !== 'BoundTransaction') {
       throw new Error('BOUND_TRANSACTION_REQUIRED');
     }
-    return Object.freeze({
-      proposalHash: boundTransaction.proposalHash,
-      transition: boundTransaction.validatedTransition,
-      simulated: true,
-    });
+    const result = this.simulator(boundTransaction);
+    if (!result || result.ok !== true) throw new Error('SIMULATION_FAILED');
+    return Object.freeze({ ok: true, result: structuredClone(result) });
   }
 }
 
