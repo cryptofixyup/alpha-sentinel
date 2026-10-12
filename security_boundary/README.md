@@ -6,7 +6,11 @@ This package establishes the transaction trust boundary before additional AI int
 
 `Risk → Policy → Proposal → Hash → Router-specific Transaction Builder → Simulation → Timelock/Approval → Isolated Signer → Broadcast → Verification`
 
-## Security invariant
+## Security invariants
+
+**Capability ≠ Authority.**
+
+**Assertion ≠ Truth.** External or internal assertions are evidence inputs, not control-plane truth. Trust must be explicitly established from provenance, scope of authority, binding to the exact artifact, freshness, corroboration where required, and independent verification.
 
 **The orchestration/LLM layer never receives wallet private-key material and never signs transactions.**
 
