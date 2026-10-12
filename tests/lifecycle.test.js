@@ -32,10 +32,12 @@ test('proposal creation is durable and starts at PROPOSED', () => {
 test('canonical lifecycle accepts only the declared forward transitions', () => {
   const { coordinator } = makeCoordinator();
   coordinator.propose({ proposalId: 'p-2' });
-  for (const to of [STATES.AUTHORIZED, STATES.VALIDATED, STATES.BOUND, STATES.SIMULATED, STATES.TIMED_WAIT, STATES.RE_SIMULATED, STATES.APPROVED, STATES.EXECUTED, STATES.VERIFIED]) {
+  for (const to of [STATES.AUTHORIZED, STATES.VALIDATED, STATES.BOUND, STATES.SIMULATED, STATES.TIMED_WAIT, STATES.RE_SIMULATED, STATES.APPROVED]) {
     coordinator.advance({ actor: 'operator', to });
   }
-  assert.equal(coordinator.snapshot().lifecycle, STATES.VERIFIED);
+  assert.equal(coordinator.snapshot().lifecycle, STATES.APPROVED);
+  assert.throws(() => coordinator.advance({ actor: 'operator', to: STATES.EXECUTED }), /EVIDENCE_PUBLIC_KEY_REQUIRED/);
+  assert.equal(coordinator.snapshot().lifecycle, STATES.APPROVED);
 });
 
 test('invalid lifecycle transitions fail before durable mutation', () => {

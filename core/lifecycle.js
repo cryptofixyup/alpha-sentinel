@@ -1,5 +1,7 @@
 'use strict';
 
+const { TransitionEvidenceVerifier } = require('../security/transition-evidence');
+
 const STATES = Object.freeze({
   PROPOSED: 'PROPOSED', AUTHORIZED: 'AUTHORIZED', VALIDATED: 'VALIDATED',
   BOUND: 'BOUND', SIMULATED: 'SIMULATED', TIMED_WAIT: 'TIMED_WAIT',
@@ -20,13 +22,15 @@ const TRANSITIONS = Object.freeze({
 });
 
 class LifecycleCoordinator {
-  constructor({ policy, validator, state }) {
+  #evidenceVerifier;
+  constructor({ policy, validator, state, executionPublicKey, verificationPublicKey, evidenceClock }) {
     if (!policy || typeof policy.authorize !== 'function') throw new TypeError('policy required');
     if (!validator || typeof validator.validate !== 'function') throw new TypeError('validator required');
     if (!state || typeof state.snapshot !== 'function' || typeof state.apply !== 'function') throw new TypeError('durable state required');
     this.policy = policy;
     this.validator = validator;
     this.state = state;
+    this.#evidenceVerifier = new TransitionEvidenceVerifier({ executionPublicKey, verificationPublicKey, evidenceClock });
   }
 
   snapshot() {
@@ -46,10 +50,15 @@ class LifecycleCoordinator {
     return this._applyTransition(null, STATES.PROPOSED, { proposalId, metadata }, { authorize: false });
   }
 
-  advance({ actor, to, metadata = {} }) {
+  advance({ actor, to, metadata = {}, evidence }) {
     const current = this.snapshot();
     if (!Object.values(STATES).includes(to)) throw new Error('INVALID_LIFECYCLE_STATE');
     if (!(TRANSITIONS[current.lifecycle] || []).includes(to)) throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${to}`);
+    if (to === STATES.EXECUTED) {
+      metadata = { executionEvidence: this.#evidenceVerifier.verify(evidence, current, 'execution') };
+    } else if (to === STATES.VERIFIED) {
+      metadata = { verificationEvidence: this.#evidenceVerifier.verify(evidence, current, 'receipt') };
+    }
     return this._applyTransition(current.lifecycle, to, {
       proposalId: current.proposalId,
       metadata: { ...current.metadata, ...structuredClone(metadata) },

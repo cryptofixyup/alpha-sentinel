@@ -3,8 +3,8 @@
 const { LifecycleCoordinator, STATES } = require('./lifecycle');
 
 class AuthorizationDaemon {
-  constructor({ policy, validator, state, routerAdapter, simulationBoundary }) {
-    this.lifecycle = new LifecycleCoordinator({ policy, validator, state });
+  constructor({ policy, validator, state, routerAdapter, simulationBoundary, executionPublicKey, verificationPublicKey, evidenceClock }) {
+    this.lifecycle = new LifecycleCoordinator({ policy, validator, state, executionPublicKey, verificationPublicKey, evidenceClock });
     if (!routerAdapter || typeof routerAdapter.construct !== 'function') throw new TypeError('routerAdapter required');
     if (!simulationBoundary || typeof simulationBoundary.simulate !== 'function') throw new TypeError('simulationBoundary required');
     this.routerAdapter = routerAdapter;
@@ -76,14 +76,14 @@ class AuthorizationDaemon {
     return result;
   }
 
-  execute({ actor }) {
+  execute({ actor, evidence }) {
     const current = this.lifecycle.snapshot();
     if (current.lifecycle !== STATES.APPROVED) {
       throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.EXECUTED}`);
     }
-    return this.lifecycle.advance({ actor, to: STATES.EXECUTED });
+    return this.lifecycle.advance({ actor, to: STATES.EXECUTED, evidence });
   }
-  verify({ actor }) { return this.lifecycle.advance({ actor, to: STATES.VERIFIED }); }
+  verify({ actor, evidence }) { return this.lifecycle.advance({ actor, to: STATES.VERIFIED, evidence }); }
   snapshot() { return this.lifecycle.snapshot(); }
 }
 
