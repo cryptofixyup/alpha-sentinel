@@ -35,6 +35,14 @@ class TransitionEvidenceVerifier {
     if (!Number.isSafeInteger(proof.timestamp) || proof.timestamp > now || now - proof.timestamp > 300000) {
       throw new Error('EVIDENCE_STALE');
     }
+    const precedingTimestamp = kind === 'execution'
+      ? current.metadata.approvedAt
+      : current.metadata.executionEvidence?.timestamp;
+    if (!Number.isSafeInteger(precedingTimestamp) || precedingTimestamp < 0) {
+      throw new Error('EVIDENCE_TRANSITION_TIME_REQUIRED');
+    }
+    // Millisecond timestamps may coincide, but signed outcomes cannot predate their prerequisite.
+    if (proof.timestamp < precedingTimestamp) throw new Error('EVIDENCE_PRECEDES_TRANSITION');
     if (proof.proposalId !== current.proposalId || proof.proposalHash !== current.metadata.proposalHash ||
         proof.transactionDigest !== transactionDigest(current.metadata.boundTransaction)) {
       throw new Error('EVIDENCE_TRANSACTION_MISMATCH');
