@@ -27,7 +27,7 @@ jobs:
         run: |
           mkdir -p evidence/top-level evidence/recursive
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          node -e 'const fs=require("node:fs"); const cp=require("node:child_process"); fs.writeFileSync("evidence/identity.json", JSON.stringify({testedSha:cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),workflowSha:process.env.GITHUB_SHA,prHeadSha:process.env.PR_HEAD_SHA||null,node:process.version,runUrl:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`},null,2)+"\n")'
+          node -e 'const fs=require("node:fs"); const cp=require("node:child_process"); fs.writeFileSync("evidence/identity.json", JSON.stringify({testedSha:cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),eventSha:process.env.GITHUB_SHA,workflowSha:process.env.GITHUB_WORKFLOW_SHA,workflowRef:process.env.GITHUB_WORKFLOW_REF,prHeadSha:process.env.PR_HEAD_SHA||null,node:process.version,runUrl:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`},null,2)+"\n")'
       - name: Run all top-level tests with coverage
         env:
           ES001_EVIDENCE_DIR: ${{ github.workspace }}/evidence/top-level
