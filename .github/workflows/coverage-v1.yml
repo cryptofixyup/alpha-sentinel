@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: '24.19.0'
       - name: Record tested revision
+        id: record_identity
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -35,6 +36,7 @@ jobs:
           set -o pipefail
           node --test --experimental-test-coverage tests/*.test.js 2>&1 | tee evidence/top-level.log
       - name: Run recursive suite including generated tests
+        if: ${{ !cancelled() && steps.record_identity.outcome == 'success' }}
         env:
           ES001_EVIDENCE_DIR: ${{ github.workspace }}/evidence/recursive
         run: |
