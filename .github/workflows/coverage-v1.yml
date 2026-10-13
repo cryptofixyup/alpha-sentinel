@@ -44,7 +44,7 @@ jobs:
         if: always()
         run: |
           mkdir -p evidence
-          sha256sum tests/es001-peer-authority.test.js tests/coverage-router-journal.test.js .github/workflows/coverage-v1.yml > evidence/source.sha256
+          sha256sum tests/es001-peer-authority.test.js tests/coverage-router-journal.test.js tests/result-claim-reservation.test.js security/signed-result-verifier.js .github/workflows/coverage-v1.yml > evidence/source.sha256
           find evidence -type f ! -name MANIFEST.sha256 ! -name MANIFEST.anchor -print0 | sort -z | xargs -0 sha256sum > evidence/MANIFEST.sha256
           sha256sum evidence/MANIFEST.sha256 > evidence/MANIFEST.anchor
       - uses: actions/upload-artifact@v4
