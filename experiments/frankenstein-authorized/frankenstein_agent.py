@@ -59,6 +59,8 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any
 
+from config_flags import env_opt_in
+
 # Avoid tokenizer oversubscription when retrieval and embedding run concurrently.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
@@ -103,12 +105,8 @@ BM25_K = max(TOP_K, int(os.getenv("FRANKENSTEIN_BM25_K", str(max(TOP_K * 2, 12))
 RRF_K = max(1, int(os.getenv("FRANKENSTEIN_RRF_K", "60")))
 RERANK_K = max(TOP_K, int(os.getenv("FRANKENSTEIN_RERANK_K", str(max(TOP_K * 2, 12)))))
 
-ENABLE_WEB = os.getenv("FRANKENSTEIN_WEB_SEARCH", "0").lower() not in {
-    "0", "false", "no"
-}
-ENABLE_RERANK = os.getenv("FRANKENSTEIN_RERANK", "0").lower() in {
-    "1", "true", "yes"
-}
+ENABLE_WEB = env_opt_in("FRANKENSTEIN_WEB_SEARCH")
+ENABLE_RERANK = env_opt_in("FRANKENSTEIN_RERANK")
 RERANK_MODEL = os.getenv(
     "FRANKENSTEIN_RERANK_MODEL",
     "BAAI/bge-reranker-v2-m3",
@@ -518,7 +516,12 @@ def web_search(query: str) -> str:
         grant = json.loads(Path(grant_path).read_text(encoding="utf-8"))
         control = ControlPlane(key, os.getenv("SENTINEL_AUTHORITY_DB", "./authority.sqlite3"), ScopeContract(frozenset({"web_search"}), os.getenv("SENTINEL_TENANT", "local")))
         try:
-            return control.execute(grant, control.scope.tenant, "web_search", {"query": query}, _web_search_uncached)
+            try:
+                return control.execute(grant, control.scope.tenant, "web_search", {"query": query}, _web_search_uncached)
+            except AuthorityError:
+                raise
+            except Exception as exc:
+                return f"Web search failed (outcome UNKNOWN): {type(exc).__name__}"
         finally:
             control.close()
     except (AuthorityError, ValueError, OSError, json.JSONDecodeError) as exc:
@@ -526,22 +529,19 @@ def web_search(query: str) -> str:
 
 
 def _web_search_uncached(query: str) -> str:
-    try:
-        from ddgs import DDGS
+    from ddgs import DDGS
 
-        results = DDGS().text(query, max_results=WEB_RESULTS)
-        if not results:
-            return "No web results found."
+    results = DDGS().text(query, max_results=WEB_RESULTS)
+    if not results:
+        return "No web results found."
 
-        lines: list[str] = []
-        for item in results:
-            title = item.get("title", "")
-            body = item.get("body", "")
-            href = item.get("href", "")
-            lines.append(f"{title}\n{body}\n{href}")
-        return "\n\n".join(lines)
-    except Exception as exc:
-        return f"Web search unavailable: {exc}"
+    lines: list[str] = []
+    for item in results:
+        title = item.get("title", "")
+        body = item.get("body", "")
+        href = item.get("href", "")
+        lines.append(f"{title}\n{body}\n{href}")
+    return "\n\n".join(lines)
 
 
 if WEB_CACHE_SIZE:

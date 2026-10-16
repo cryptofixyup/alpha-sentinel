@@ -3,7 +3,7 @@
 Status: **experimental / not approved for production**.
 
 ## Provenance
-Source artifact: `full_frankenstein_agent.optimized.py` uploaded in the associated engineering conversation. A separately generated local reference package contains `frankenstein_agent.py`, `authority.py`, `issue_grant.py`, and `tests/test_authority.py`. **Those files are not committed in this branch yet.** Do not treat this document as evidence that the reference implementation has been integrated.
+Source artifact: `full_frankenstein_agent.optimized.py` uploaded in the associated engineering conversation. This branch includes the reviewed reference implementation: `frankenstein_agent.py`, `authority.py`, `issue_grant.py`, and `tests/test_authority.py`. Their presence establishes integration into this experimental branch only; it is not evidence of production approval or end-to-end verification.
 
 ## Existing repository contract
 The existing `security_boundary/` transaction pipeline owns risk, policy, proposal binding, simulation, approval, isolated signing, and post-signing separation. The Frankenstein RAG agent must not bypass, replace, or mutate this pipeline.
@@ -25,4 +25,4 @@ The existing `security_boundary/` transaction pipeline owns risk, policy, propos
 ## Known design limitations
 Atomic grant reservation is not exactly-once external effect execution. Tool-returned strings are not independent outcome evidence. A reserved grant whose process crashes requires reconciliation. A signed grant alone does not prove operator identity or policy correctness.
 
-This review-only scaffold deliberately changes no production source or workflows.
+This experimental integration does not modify the production authorization pipeline. It adds the isolated `.github/workflows/frankenstein-authorized-regression.yml` workflow for mock-based authority regression testing.
