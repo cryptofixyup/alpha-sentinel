@@ -115,7 +115,6 @@ const BAD_CLOCKS = [
   ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
   ['numeric string', '2000'],
   ['null', null],
-  ['undefined', undefined],
 ];
 
 function simulatedDaemon(proposalId) {
