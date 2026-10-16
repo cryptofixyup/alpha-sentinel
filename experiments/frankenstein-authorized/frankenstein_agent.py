@@ -59,6 +59,8 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any
 
+from config_flags import env_opt_in
+
 # Avoid tokenizer oversubscription when retrieval and embedding run concurrently.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
@@ -103,12 +105,8 @@ BM25_K = max(TOP_K, int(os.getenv("FRANKENSTEIN_BM25_K", str(max(TOP_K * 2, 12))
 RRF_K = max(1, int(os.getenv("FRANKENSTEIN_RRF_K", "60")))
 RERANK_K = max(TOP_K, int(os.getenv("FRANKENSTEIN_RERANK_K", str(max(TOP_K * 2, 12)))))
 
-ENABLE_WEB = os.getenv("FRANKENSTEIN_WEB_SEARCH", "0").strip().lower() in {
-    "1", "true", "yes"
-}
-ENABLE_RERANK = os.getenv("FRANKENSTEIN_RERANK", "0").lower() in {
-    "1", "true", "yes"
-}
+ENABLE_WEB = env_opt_in("FRANKENSTEIN_WEB_SEARCH")
+ENABLE_RERANK = env_opt_in("FRANKENSTEIN_RERANK")
 RERANK_MODEL = os.getenv(
     "FRANKENSTEIN_RERANK_MODEL",
     "BAAI/bge-reranker-v2-m3",
