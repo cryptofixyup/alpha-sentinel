@@ -204,3 +204,28 @@ def test_no_private_key_is_required_by_boundary():
     source = open("security_boundary/signer.py", encoding="utf-8").read()
     assert "PRIVATE_KEY" not in source
     assert "WALLET_PRIVATE_KEY" not in source
+
+
+def test_router_rejects_gas_price_above_proposal_cap():
+    from security_boundary.router import validate_built_transaction
+
+    result = make_pipeline(FakeRouter()).execute(intent(), 0)
+    assert result.proposal is not None and result.transaction is not None
+    excessive = replace(
+        result.transaction,
+        gas_price_wei=result.proposal.gas_price_limit_wei + 1,
+    )
+    with pytest.raises(ValueError, match="gas price exceeds proposal cap"):
+        validate_built_transaction(result.proposal, excessive)
+
+
+def test_router_accepts_gas_price_at_proposal_cap():
+    from security_boundary.router import validate_built_transaction
+
+    result = make_pipeline(FakeRouter()).execute(intent(), 0)
+    assert result.proposal is not None and result.transaction is not None
+    at_cap = replace(
+        result.transaction,
+        gas_price_wei=result.proposal.gas_price_limit_wei,
+    )
+    validate_built_transaction(result.proposal, at_cap)
