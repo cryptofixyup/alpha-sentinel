@@ -26,6 +26,7 @@ class AuthorizationDaemon {
       throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.APPROVED}`);
     }
     if (!Number.isInteger(current.metadata.unlockAt)) throw new Error('TIMELOCK_NOT_CONFIGURED');
+    if (!Number.isSafeInteger(now) || now < 0) throw new Error('INVALID_APPROVAL_TIME');
     if (now < current.metadata.unlockAt) throw new Error('TIMELOCK_ACTIVE');
     return this.lifecycle.advance({ actor, to: STATES.APPROVED, metadata: { approvedAt: now } });
   }
