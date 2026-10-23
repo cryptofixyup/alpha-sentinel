@@ -21,7 +21,7 @@ class AuthorizationDaemon {
     if (current.lifecycle !== STATES.SIMULATED) {
       throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.TIMED_WAIT}`);
     }
-    if (!Number.isInteger(unlockAt) || unlockAt < 0) throw new Error('INVALID_UNLOCK_TIME');
+    if (!Number.isSafeInteger(unlockAt) || unlockAt < 0) throw new Error('INVALID_UNLOCK_TIME');
     return this.lifecycle.advance({ actor, to: STATES.TIMED_WAIT, metadata: { unlockAt } });
   }
 
@@ -30,7 +30,8 @@ class AuthorizationDaemon {
     if (current.lifecycle !== STATES.TIMED_WAIT) {
       throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.RE_SIMULATED}`);
     }
-    if (!Number.isInteger(current.metadata.unlockAt)) throw new Error('TIMELOCK_NOT_CONFIGURED');
+    if (!Number.isSafeInteger(current.metadata.unlockAt) || current.metadata.unlockAt < 0) throw new Error('TIMELOCK_NOT_CONFIGURED');
+    if (!Number.isSafeInteger(now) || now < 0) throw new Error('INVALID_CLOCK_TIME');
     if (now < current.metadata.unlockAt) throw new Error('TIMELOCK_ACTIVE');
 
     const tx = current.metadata.boundTransaction;
@@ -49,7 +50,8 @@ class AuthorizationDaemon {
     if (current.lifecycle !== STATES.RE_SIMULATED) {
       throw new Error(`INVALID_LIFECYCLE_TRANSITION:${current.lifecycle}->${STATES.APPROVED}`);
     }
-    if (!Number.isInteger(current.metadata.unlockAt)) throw new Error('TIMELOCK_NOT_CONFIGURED');
+    if (!Number.isSafeInteger(current.metadata.unlockAt) || current.metadata.unlockAt < 0) throw new Error('TIMELOCK_NOT_CONFIGURED');
+    if (!Number.isSafeInteger(now) || now < 0) throw new Error('INVALID_CLOCK_TIME');
     if (now < current.metadata.unlockAt) throw new Error('TIMELOCK_ACTIVE');
     return this.lifecycle.advance({ actor, to: STATES.APPROVED, metadata: { approvedAt: now } });
   }
