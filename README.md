@@ -1,6 +1,6 @@
 # Alpha Sentinel
 
-**Open-source AI security and authorization framework for autonomous agents**
+**AI security and authorization framework for autonomous agents**
 
 Alpha Sentinel is a security-first, deterministic control plane designed to separate AI reasoning from execution authority.
 
