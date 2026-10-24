@@ -84,7 +84,7 @@ These are test fixtures. They do not perform production signing or live blockcha
 
 ## Operational Monitoring
 
-A standalone [monitoring tool](tools/monitoring/README.md) checks selected disk paths and evaluates supplied latency/memory metrics with validated rules and isolated sink failures. It is informational and does not authorize actions. Real metric producers and notification delivery must be connected separately.
+A standalone [monitoring tool](tools/monitoring/README.md) checks disk paths, follows appended latency/memory metrics in watch mode, and can POST generic JSON alerts to a configured HTTPS receiver. It is informational and does not authorize actions. Target-host activation and metric-producer configuration remain explicit operational steps.
 
 ## License
 
