@@ -82,3 +82,39 @@ This change supplies runnable live monitoring and real transport. It does not in
 Configure rules/sinks with `add_rule` and `add_sink` before ingestion; do not mutate their public lists during processing. Keep this monitoring process separate from the deterministic authorization path. A disk/latency alert is an observation, never an approval or signing instruction.
 
 CI runs these tests on Ubuntu and Windows with Python 3.11, including real loopback HTTP deliveries and bounded live polling. Actual Alpha Sentinel metric producers and a production receiver still require host-specific configuration.
+
+
+## Security observation mode (17 + 18 + 19)
+
+```bash
+# Analyze a bounded-format security log once
+python -m tools.monitoring.integrated_alerts --security --metrics-file auth.log
+
+# Observe newly appended rows; use the same console / configured webhook sinks
+python -m tools.monitoring.integrated_alerts --security --watch --metrics-file auth.log --webhook
+```
+
+Without `--security`, existing metric ingestion is unchanged. With it, stream lines go through the normalizer and detector; host disk checks still use the existing threshold rules. Security mode rejects `--demo`. It does not instrument authentication or establish that an attack occurred.
+
+Supported inputs are JSON objects, shell-quoted key=value rows, Common/Combined-style HTTP access rows with real timezone-qualified access timestamps, and RFC3164-style syslog prefixes with optional `[pid]`. The syslog message must contain supported key=value fields or a recognized `sshd` failed-password message. This is explicit format coverage, not arbitrary-text or socket ingestion. Unsupported/malformed rows are rejected and counted without logging their raw text.
+
+| Input field | Normalized measurement | Unit |
+| --- | --- | --- |
+| `lat_ms` | `latency_ms` | milliseconds |
+| `bytes` / access-log byte count | `response_bytes` | bytes |
+
+Missing measurements remain absent; legitimate zero values are retained. Byte measurements must be whole numbers. Values must be finite, nonnegative, and at most 1,000,000,000,000 in their original unit. Booleans, wrong JSON field types, invalid status/address values, duplicate KV keys, malformed quoting, and oversized input are rejected. Raw input is capped at 16 KiB; user labels at 128 characters, action labels at 64, and resource inputs at 512. Resource keys omit query strings/fragments. Missing/unspecified source addresses stay unknown (`None`), and are excluded from per-IP baselines and source-pattern correlation. Valid zero/unspecified addresses are not pooled under a synthetic IP. Missing user identity does not create a named target.
+
+Only explicit `LOGIN_FAILED` / `AUTH_FAILED` actions and supported sshd failure messages count as authentication failures. An HTTP 401/403 access response or an arbitrary action containing `FAIL` is insufficient. Four retained failures from one observed IP produce `SUSPECTED_AUTH_FAILURE_BURST`; at least three distinct known user labels among those records produce `SUSPECTED_PASSWORD_SPRAY`. These are heuristics: shared IPs/NAT, application semantics, log replay, or benign retries can produce the same pattern. User labels from different authentication realms are not independently reconciled.
+
+Statistics use separate keys `(source IP, resource path, metric name, unit)`. A candidate is scored against the prior EWMA baseline after five prior accepted samples, using alpha 0.15 and an absolute score threshold of 3. The standard-deviation denominator has a floor of one original measurement unit, so a constant baseline does not hide its first large deviation. Outliers do not train the baseline; ordinary samples do. A sustained legitimate regime change may therefore keep triggering until the series expires or is reset. Scores and severity labels are not calibrated probabilities or proof of malicious activity. The counter saturates at 2^63-1.
+
+Correlation windows, retention, and delivery cooldowns use monotonic receipt time. Source timestamps are metadata only: timezone-qualified ISO/numeric JSON/KV times and access-log timestamps can be retained; syslog's missing year/timezone and time-of-day-only values are preserved without guessing an epoch. Source-clock skew and out-of-order source times cannot pin the pruning queue. Replaying an old file in one-shot mode does **not** reconstruct historical event-time windows; its records arrive together and may produce receipt-window observations. The live follower's startup-history skip helps avoid this replay behavior in watch mode.
+
+Default bounds are 1,024 known source records, 1,024 baseline series, and 100 failure records per source. Source/series inactivity expiry is 300 seconds, checked on subsequent ingestion; failures expire at the 60-second receipt-window boundary. Least-recently-used records are evicted at capacity. Baselines retain at most five recent content-hash references each. Expiry/eviction can discard context and reduce detection coverage. A retained-failure cap sets `evidence_truncated`; counts describe retained evidence, not all traffic. The CLI reports source/series/failure counts and evictions.
+
+Security observations reuse existing sink delivery through a separate bounded cooldown cache: at most 1,024 successful rule/source/resource/sink entries, each expiring after 30 seconds. Failed delivery does not consume cooldown; successful sinks remain suppressed independently. Capacity eviction may permit a renewed notification earlier. There is no suppression state persisted across restart.
+
+Webhook security evidence includes the suspected classification, observed source IP, retained evidence count, SHA-256 input-content references, resource path, window basis, and compatible metric/baseline details when available. No raw log line, query string, or user name is sent. Detector observations hold immutable evidence tuples/target sets rather than references to mutable tracking state. Repeated identical input rows have identical content hashes: these identify content, not unique occurrences, authenticity, a signed audit chain, or independent proof. Baseline references are recent examples rather than a complete reproducible EWMA training history.
+
+Security observations remain informational. They never approve transactions, change policy, invoke signing, or block users automatically. Deployment and the production receiver remain unconfigured until a target host and destination are selected.

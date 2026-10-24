@@ -69,6 +69,7 @@ class WebhookSink:
             'category': alert.event.category, 'metric': alert.event.metric_name,
             'value': alert.event.value, 'timestamp': alert.event.timestamp,
             'details': alert.details,
+            **({'evidence': alert.evidence} if alert.evidence is not None else {}),
         }, allow_nan=False).encode('utf-8')
         request = urllib.request.Request(self._url, data=payload, method='POST',
                                          headers={'Content-Type': 'application/json'})
