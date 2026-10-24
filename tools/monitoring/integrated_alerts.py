@@ -1,4 +1,4 @@
-"""One-shot system metrics analyzer and synchronous alert pipeline (Python 3.11+)."""
+"""System metrics analyzer with optional live polling and webhook delivery (Python 3.11+)."""
 from __future__ import annotations
 
 import argparse
@@ -6,13 +6,18 @@ import json
 import logging
 import math
 import operator
+import os
 import re
 import shutil
 import sys
 import time
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
+
+from .tail import MetricFileFollower
+from .webhook import WebhookSink
 
 LOG = logging.getLogger(__name__)
 OPERATORS = {'>': operator.gt, '>=': operator.ge, '<': operator.lt,
@@ -214,16 +219,76 @@ class SystemAnalyzerEngine:
         return report
 
 
+def run_watch(engine: SystemAnalyzerEngine, paths: Iterable[str | Path], *,
+              metrics_path: str | Path | None = None, interval_sec: float = 10,
+              cycles: int | None = None, stop_event=None) -> AnalysisReport:
+    """Serial polls with process-local cooldowns; wait interval after each poll."""
+    interval = finite_number(interval_sec, 'interval')
+    if interval <= 0:
+        raise ValueError('interval must be positive')
+    if cycles is not None and (isinstance(cycles, bool) or not isinstance(cycles, int) or cycles <= 0):
+        raise ValueError('cycles must be a positive integer')
+    stop = stop_event if stop_event is not None else threading.Event()
+    paths = list(paths)
+    follower = MetricFileFollower(metrics_path) if metrics_path is not None else None
+    total = AnalysisReport()
+    cycle = 0
+    while not stop.is_set():
+        disk = engine.analyze_disk_usage(paths)
+        reports = [disk]
+        if follower is not None:
+            batch = follower.poll()
+            stream = engine.parse_and_analyze_stream(batch.lines)
+            stream.errors += batch.errors
+            reports.append(stream)
+        for report in reports:
+            total.events += report.events
+            total.errors += report.errors
+            total.delivered += report.delivered
+            total.delivery_failures += report.delivery_failures
+        cycle += 1
+        print(f'Cycle {cycle}: collected {sum(r.events for r in reports)} events; '
+              f'{sum(r.errors for r in reports)} collection/parse errors; '
+              f'{sum(r.delivery_failures for r in reports)} delivery failures', flush=True)
+        if cycles is not None and cycle >= cycles:
+            break
+        stop.wait(interval)
+    return total
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disk-path', action='append', help='Path to monitor; repeat for multiple paths')
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument('--metrics-file', help='Read metric lines from a UTF-8 file, or - for stdin')
     inputs.add_argument('--demo', action='store_true', help='Process synthetic sample metrics explicitly')
+    parser.add_argument('--watch', action='store_true', help='Poll disk and follow new metric-file rows')
+    parser.add_argument('--interval', type=float, default=10, help='Seconds to wait after each watch poll')
+    parser.add_argument('--cycles', type=int, help='Stop watch mode after this many polls')
+    parser.add_argument('--webhook', action='store_true', help='Send generic JSON alerts to MONITOR_WEBHOOK_URL')
+    parser.add_argument('--webhook-timeout', type=float, default=5, help='Webhook socket timeout, seconds (0, 60]')
+    parser.add_argument('--allow-http-localhost', action='store_true', help='Allow HTTP loopback receiver for local testing')
     args = parser.parse_args()
+    if not math.isfinite(args.interval) or args.interval <= 0:
+        parser.error('--interval must be finite and positive')
+    if args.cycles is not None and (not args.watch or args.cycles <= 0):
+        parser.error('--cycles requires --watch and a positive integer')
+    if args.watch and (args.demo or args.metrics_file == '-'):
+        parser.error('--watch accepts a regular metric file, not stdin or demo data')
+    webhook = None
+    if args.webhook:
+        url = os.environ.get('MONITOR_WEBHOOK_URL')
+        if not url:
+            parser.error('--webhook requires MONITOR_WEBHOOK_URL in the environment')
+        try:
+            webhook = WebhookSink(url, timeout_sec=args.webhook_timeout,
+                                  allow_http_localhost=args.allow_http_localhost)
+        except ValueError as exc:
+            parser.error(str(exc))
     logging.basicConfig(level=logging.WARNING)
     paths = args.disk_path if args.disk_path is not None else [Path.cwd().anchor]
-    pipeline = IntegratedAlertPipeline().add_sink(ConsoleSink()).add_sink(WebhookMockSink())
+    pipeline = IntegratedAlertPipeline().add_sink(ConsoleSink())
+    pipeline.add_sink(webhook if webhook is not None else WebhookMockSink())
     for path in paths:
         label = str(Path(path).absolute())
         pipeline.add_rule(AlertRule('High Disk Usage', 'DISK', f'disk_used_percent_{label}',
@@ -233,6 +298,16 @@ def main() -> int:
     pipeline.add_rule(AlertRule('High Memory', 'METRIC_STREAM', 'memory_mb',
                                 300, cooldown_sec=3))
     engine = SystemAnalyzerEngine(pipeline)
+    if args.watch:
+        try:
+            total = run_watch(engine, paths, metrics_path=args.metrics_file,
+                              interval_sec=args.interval, cycles=args.cycles)
+        except KeyboardInterrupt:
+            print('Monitoring stopped', flush=True)
+            return 130
+        print(f'Collected {total.events} events; {total.errors} collection/parse errors; '
+              f'{total.delivery_failures} delivery failures')
+        return int(bool(total.errors or total.delivery_failures))
     disk = engine.analyze_disk_usage(paths)
     stream = AnalysisReport()
     try:
