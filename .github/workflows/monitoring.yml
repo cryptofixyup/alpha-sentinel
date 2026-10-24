@@ -1,0 +1,36 @@
+name: Operational Monitoring
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/monitoring/**'
+      - 'tests/test_monitoring.py'
+      - '.github/workflows/monitoring.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/monitoring/**'
+      - 'tests/test_monitoring.py'
+      - '.github/workflows/monitoring.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitoring:
+    name: Monitoring (${{ matrix.os }}, Python 3.11)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run monitoring regressions
+        run: python -m unittest discover -s tests -p test_monitoring.py -v
