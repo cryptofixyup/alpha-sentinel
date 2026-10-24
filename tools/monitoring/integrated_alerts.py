@@ -1,0 +1,260 @@
+"""One-shot system metrics analyzer and synchronous alert pipeline (Python 3.11+)."""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import math
+import operator
+import re
+import shutil
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterable
+
+LOG = logging.getLogger(__name__)
+OPERATORS = {'>': operator.gt, '>=': operator.ge, '<': operator.lt,
+             '<=': operator.le, '==': operator.eq}
+
+
+def finite_number(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f'{name} must be a finite number')
+    try:
+        result = float(value)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(f'{name} must be a finite number') from exc
+    if not math.isfinite(result):
+        raise ValueError(f'{name} must be a finite number')
+    return result
+
+
+@dataclass(frozen=True)
+class MetricEvent:
+    timestamp: float
+    category: str
+    metric_name: str
+    value: float
+    raw_payload: dict[str, Any]
+
+    def __post_init__(self):
+        object.__setattr__(self, 'timestamp', finite_number(self.timestamp, 'timestamp'))
+        object.__setattr__(self, 'value', finite_number(self.value, 'value'))
+
+
+@dataclass(frozen=True)
+class Alert:
+    rule_name: str
+    severity: str
+    event: MetricEvent
+    details: str
+
+
+class AlertSink:
+    def emit(self, alert: Alert) -> None:
+        raise NotImplementedError
+
+
+class ConsoleSink(AlertSink):
+    def emit(self, alert: Alert) -> None:
+        print(f'[{alert.severity}] {alert.rule_name}: {alert.details}')
+
+
+class WebhookMockSink(AlertSink):
+    """Print JSON only; does not send network requests."""
+    def emit(self, alert: Alert) -> None:
+        print(json.dumps({'alert': alert.rule_name, 'severity': alert.severity,
+                          'metric': alert.event.metric_name, 'value': alert.event.value,
+                          'details': alert.details}, allow_nan=False))
+
+
+@dataclass(frozen=True)
+class AlertRule:
+    name: str
+    category: str
+    metric_name: str
+    threshold: float
+    condition: str = '>'
+    severity: str = 'HIGH'
+    cooldown_sec: float = 5
+
+    def __post_init__(self):
+        if not isinstance(self.condition, str) or self.condition not in OPERATORS:
+            raise ValueError('condition must be one of >, >=, <, <=, ==')
+        object.__setattr__(self, 'threshold', finite_number(self.threshold, 'threshold'))
+        cooldown = finite_number(self.cooldown_sec, 'cooldown_sec')
+        if cooldown < 0:
+            raise ValueError('cooldown_sec must be nonnegative')
+        object.__setattr__(self, 'cooldown_sec', cooldown)
+
+    def evaluate(self, event: MetricEvent) -> Alert | None:
+        """Pure matching; the pipeline owns per-sink delivery cooldowns."""
+        if event.category != self.category or event.metric_name != self.metric_name:
+            return None
+        if not OPERATORS[self.condition](event.value, self.threshold):
+            return None
+        return Alert(self.name, self.severity, event,
+                     f'{event.metric_name} ({event.value}) breached threshold '
+                     f'{self.condition} {self.threshold}')
+
+
+@dataclass
+class DeliveryReport:
+    delivered: int = 0
+    failed: int = 0
+    suppressed: int = 0
+
+
+class IntegratedAlertPipeline:
+    """Single-threaded. Successful deliveries alone consume sink cooldowns."""
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic):
+        self.rules: list[AlertRule] = []
+        self.sinks: list[AlertSink] = []
+        self._clock = clock
+        self._last_delivered: dict[tuple[int, int], float] = {}
+
+    def add_rule(self, rule: AlertRule) -> IntegratedAlertPipeline:
+        self.rules.append(rule)
+        return self
+
+    def add_sink(self, sink: AlertSink) -> IntegratedAlertPipeline:
+        self.sinks.append(sink)
+        return self
+
+    def ingest(self, event: MetricEvent) -> DeliveryReport:
+        report = DeliveryReport()
+        for rule in self.rules:
+            alert = rule.evaluate(event)
+            if alert is None:
+                continue
+            for sink in self.sinks:
+                key = (id(rule), id(sink))
+                now = self._clock()
+                last = self._last_delivered.get(key)
+                if last is not None and now - last < rule.cooldown_sec:
+                    report.suppressed += 1
+                    continue
+                try:
+                    sink.emit(alert)
+                except Exception:
+                    report.failed += 1
+                    LOG.exception('Alert delivery failed: rule=%s sink=%s',
+                                  rule.name, type(sink).__name__)
+                else:
+                    self._last_delivered[key] = self._clock()
+                    report.delivered += 1
+        return report
+
+
+@dataclass
+class AnalysisReport:
+    events: int = 0
+    errors: int = 0
+    delivered: int = 0
+    delivery_failures: int = 0
+
+    def ingest(self, pipeline: IntegratedAlertPipeline, event: MetricEvent) -> None:
+        delivery = pipeline.ingest(event)
+        self.events += 1
+        self.delivered += delivery.delivered
+        self.delivery_failures += delivery.failed
+
+
+class SystemAnalyzerEngine:
+    def __init__(self, pipeline: IntegratedAlertPipeline):
+        self.pipeline = pipeline
+
+    def analyze_disk_usage(self, paths: Iterable[str | Path] | None = None) -> AnalysisReport:
+        """Collect each requested path; default to the current drive/filesystem root."""
+        report = AnalysisReport()
+        if paths is None:
+            paths = [Path.cwd().anchor]
+        for path in paths:
+            try:
+                label = str(Path(path).absolute())
+                usage = shutil.disk_usage(path)
+                total = finite_number(usage.total, 'disk total')
+                used = finite_number(usage.used, 'disk used')
+                if total <= 0 or not 0 <= used <= total:
+                    raise ValueError('invalid disk capacity values')
+                event = MetricEvent(time.time(), 'DISK', f'disk_used_percent_{label}',
+                                    used / total * 100,
+                                    {'path': label, 'total_bytes': usage.total,
+                                     'used_bytes': usage.used, 'free_bytes': usage.free})
+            except (OSError, ValueError) as exc:
+                report.errors += 1
+                LOG.warning('Disk collection failed for %r: %s', str(path), exc)
+                continue
+            report.ingest(self.pipeline, event)
+        return report
+
+    def parse_and_analyze_stream(self, log_lines: Iterable[str]) -> AnalysisReport:
+        report = AnalysisReport()
+        try:
+            for line_number, line in enumerate(log_lines, 1):
+                matches = dict(re.findall(r'(\w+)=(\S*)', line))
+                for source, name in [('lat_ms', 'latency_ms'), ('mem_mb', 'memory_mb')]:
+                    if source not in matches:
+                        continue
+                    try:
+                        value = finite_number(float(matches[source]), source)
+                        if value < 0:
+                            raise ValueError(f'{source} must be nonnegative')
+                        event = MetricEvent(time.time(), 'METRIC_STREAM', name, value, dict(matches))
+                    except (ValueError, OverflowError) as exc:
+                        report.errors += 1
+                        LOG.warning('Invalid metric on line %d (%s): %s', line_number, source, exc)
+                        continue
+                    report.ingest(self.pipeline, event)
+        except (OSError, UnicodeError) as exc:
+            report.errors += 1
+            LOG.warning('Metric input failed: %s', exc)
+        return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--disk-path', action='append', help='Path to monitor; repeat for multiple paths')
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument('--metrics-file', help='Read metric lines from a UTF-8 file, or - for stdin')
+    inputs.add_argument('--demo', action='store_true', help='Process synthetic sample metrics explicitly')
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.WARNING)
+    paths = args.disk_path if args.disk_path is not None else [Path.cwd().anchor]
+    pipeline = IntegratedAlertPipeline().add_sink(ConsoleSink()).add_sink(WebhookMockSink())
+    for path in paths:
+        label = str(Path(path).absolute())
+        pipeline.add_rule(AlertRule('High Disk Usage', 'DISK', f'disk_used_percent_{label}',
+                                    80, severity='WARNING'))
+    pipeline.add_rule(AlertRule('API High Latency', 'METRIC_STREAM', 'latency_ms',
+                                500, severity='CRITICAL', cooldown_sec=3))
+    pipeline.add_rule(AlertRule('High Memory', 'METRIC_STREAM', 'memory_mb',
+                                300, cooldown_sec=3))
+    engine = SystemAnalyzerEngine(pipeline)
+    disk = engine.analyze_disk_usage(paths)
+    stream = AnalysisReport()
+    try:
+        if args.demo:
+            stream = engine.parse_and_analyze_stream([
+                'time=10:00:01 status=200 lat_ms=25.4 mem_mb=180',
+                'time=10:00:02 status=200 lat_ms=650 mem_mb=350.5',
+                'time=10:00:03 status=200 lat_ms=620 mem_mb=340',
+                'time=10:00:04 status=200 lat_ms=15.1 mem_mb=210'])
+        elif args.metrics_file == '-':
+            stream = engine.parse_and_analyze_stream(sys.stdin)
+        elif args.metrics_file:
+            with open(args.metrics_file, encoding='utf-8') as source:
+                stream = engine.parse_and_analyze_stream(source)
+    except (OSError, UnicodeError) as exc:
+        stream.errors += 1
+        LOG.warning('Metric input failed: %s', exc)
+    print(f'Collected {disk.events + stream.events} events; '
+          f'{disk.errors + stream.errors} collection/parse errors; '
+          f'{disk.delivery_failures + stream.delivery_failures} delivery failures')
+    return int(bool(disk.errors or stream.errors or disk.delivery_failures or stream.delivery_failures))
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
