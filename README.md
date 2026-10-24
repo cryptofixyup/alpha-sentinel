@@ -82,6 +82,10 @@ python -m pytest -q tests/test_security_boundary.py
 
 These are test fixtures. They do not perform production signing or live blockchain broadcasts.
 
+## Operational Monitoring
+
+A standalone [monitoring tool](tools/monitoring/README.md) checks selected disk paths and evaluates supplied latency/memory metrics with validated rules and isolated sink failures. It is informational and does not authorize actions. Real metric producers and notification delivery must be connected separately.
+
 ## License
 
 No repository license is currently declared in GitHub metadata, and no root `LICENSE` file was found during this update. Do not assume the source is licensed for unrestricted reuse. A license must be selected and added by the repository owner.
@@ -91,3 +95,4 @@ No repository license is currently declared in GitHub metadata, and no root `LIC
 Piotr Kozłowski  
 Founder, CryptoFixYup  
 Independent software architect focused on deterministic systems, cryptographic integrity, and evidence-based security for autonomous AI.
+
