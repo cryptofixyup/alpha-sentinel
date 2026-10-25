@@ -105,3 +105,29 @@ test('simulation receives only a bound transaction', () => {
   assert.equal(result.ok, true);
   assert.equal(d.snapshot().lifecycle, STATES.SIMULATED);
 });
+
+test('classified agent and model principals are rejected before a permissive callback', () => {
+  let callbackCalls = 0;
+  const policy = new Policy(() => { callbackCalls++; return true; });
+  const state = new DurableState();
+  const d = new AuthorizationDaemon({ policy, validator: new Validator(), state,
+    routerAdapter: { construct: () => ({}) },
+    simulationBoundary: { simulate: () => ({ ok: true }) } });
+  d.propose({ proposalId: 'agent-denied', proposalHash: 'hash', payload: {} });
+  const before = state.snapshot();
+  for (const kind of ['agent', 'model']) {
+    assert.throws(() => d.authorize({ actor: { kind, id: 'untrusted' } }), /POLICY_DENIED/);
+  }
+  assert.equal(callbackCalls, 0);
+  assert.deepEqual(state.snapshot(), before);
+  assert.equal(d.snapshot().lifecycle, STATES.PROPOSED);
+});
+
+test('operator objects and legacy strings remain subject to callback authorization', () => {
+  const operator = { kind: 'operator', id: 'trusted' };
+  const policy = new Policy(actor => actor === operator || actor === 'operator');
+  assert.equal(policy.authorize({ actor: operator, transition: {} }).actor, operator);
+  assert.equal(policy.authorize({ actor: 'operator', transition: {} }).actor, 'operator');
+  assert.throws(() => policy.authorize({ actor: { kind: 'operator', id: 'other' }, transition: {} }), /POLICY_DENIED/);
+  assert.throws(() => policy.authorize({ actor: 'untrusted', transition: {} }), /POLICY_DENIED/);
+});
