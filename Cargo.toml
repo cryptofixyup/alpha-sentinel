@@ -1,0 +1,16 @@
+[package]
+name = "alpha-sentinel"
+version = "0.1.0"
+edition = "2021"
+description = "Sentinel-RS: hardened wire decoder for SAFEWEB // WATCHDOG telemetry pipeline"
+
+[dependencies]
+crc32c = "0.6"
+hex = "0.4"
+
+# AEAD — gate on target architecture
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+aes-gcm = { version = "0.10", features = ["aes"] }
+
+[target.'cfg(not(target_arch = "x86_64"))'.dependencies]
+chacha20poly1305 = "0.10"
