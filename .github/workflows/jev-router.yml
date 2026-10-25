@@ -2,7 +2,7 @@ name: JEV router recovery
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, recovery/jev-router-20261024]
   push:
     branches: [main]
   workflow_dispatch:
@@ -28,9 +28,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           git rev-parse HEAD
           python --version
-      - name: Verify recovered source hashes
+      - name: Verify unchanged recovered research note
         working-directory: experiments/jev-router
-        run: sha256sum --check SOURCE.sha256
+        run: grep 'JEV-as-a-Judge-knowledge-source.md
+      - name: Run recovered offline tests
+        run: python -m unittest discover -s experiments/jev-router -p 'test_*.py' -v
+      - name: Compile recovered Python files
+        run: python -m compileall -q experiments/jev-router
+ SOURCE.sha256 | sha256sum --check -
       - name: Run recovered offline tests
         run: python -m unittest discover -s experiments/jev-router -p 'test_*.py' -v
       - name: Compile recovered Python files
