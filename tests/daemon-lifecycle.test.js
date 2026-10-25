@@ -58,6 +58,36 @@ test('daemon authorization remains policy-controlled', () => {
   assert.equal(d.snapshot().lifecycle, STATES.PROPOSED);
 });
 
+test('agent and model principals cannot gain lifecycle authority through a permissive callback', () => {
+  let callbackCalls = 0;
+  const policy = new Policy(() => { callbackCalls++; return true; });
+  const state = new DurableState();
+  const d = new AuthorizationDaemon({ policy, validator: new Validator(), state,
+    routerAdapter: { construct: () => ({}) },
+    simulationBoundary: { simulate: () => ({ ok: true }) } });
+  d.propose({ proposalId: 'agent-proposal', proposalHash: 'hash', payload: {} });
+  const before = state.snapshot();
+  for (const kind of ['agent', 'model']) {
+    assert.throws(() => d.authorize({ actor: { kind, id: 'untrusted' } }), /POLICY_DENIED/);
+  }
+  assert.equal(callbackCalls, 0);
+  assert.deepEqual(state.snapshot(), before);
+  assert.equal(d.snapshot().lifecycle, STATES.PROPOSED);
+});
+
+test('trusted object principals remain subject to the authorizer', () => {
+  const operator = { kind: 'operator', id: 'operator-1' };
+  const policy = new Policy(actor => actor === operator);
+  assert.equal(policy.authorize({ actor: operator, transition: {} }).actor, operator);
+  assert.throws(() => policy.authorize({ actor: { kind: 'operator', id: 'unknown' }, transition: {} }), /POLICY_DENIED/);
+});
+
+test('legacy string actors retain callback-controlled authorization', () => {
+  const policy = new Policy(actor => actor === 'operator');
+  assert.equal(policy.authorize({ actor: 'operator', transition: {} }).actor, 'operator');
+  assert.throws(() => policy.authorize({ actor: 'untrusted', transition: {} }), /POLICY_DENIED/);
+});
+
 test('timelock cannot be skipped or approved before unlock', () => {
   const d = daemon();
   d.propose({ proposalId: 'p-4', proposalHash: 'hash-p-4', payload: {} });
