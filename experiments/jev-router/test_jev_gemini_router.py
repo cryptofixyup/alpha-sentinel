@@ -7,7 +7,10 @@ import jev_gemini_router as router
 def jev_answer(route="simple_task", confidence=0.99):
     return {"model": "jev-1.13.0", "answers": {"route": {
         "type": "choice", "choice": route, "confidence": confidence,
-        "probabilities": {route: confidence},
+        "probabilities": {
+            key: (confidence if key == route else (1 - confidence) / 3)
+            for key in ("simple_task", "complex_task", "needs_review", "other")
+        },
     }}, "usage": {"input_tokens": 80, "output_tokens": 20}}
 
 
@@ -99,6 +102,27 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(payload["model"], router.JEV_MODEL)
         self.assertEqual(payload["questions"]["route"]["type"], "choice")
         self.assertTrue(headers["Authorization"].startswith("Bearer "))
+
+
+    def test_incomplete_probabilities_fail_closed(self):
+        def incomplete(url, payload, headers, timeout):
+            self.calls.append(url)
+            response = jev_answer()
+            response["answers"]["route"]["probabilities"] = {"simple_task": 0.99}
+            return response
+        with self.assertRaises(router.RoutingError):
+            router.handle("Prompt", incomplete)
+        self.assertEqual(self.calls, [router.JEV_ENDPOINT])
+
+    def test_selected_choice_must_match_probability_maximum(self):
+        def inconsistent(url, payload, headers, timeout):
+            self.calls.append(url)
+            response = jev_answer()
+            response["answers"]["route"]["choice"] = "complex_task"
+            return response
+        with self.assertRaises(router.RoutingError):
+            router.handle("Prompt", inconsistent)
+        self.assertEqual(self.calls, [router.JEV_ENDPOINT])
 
 if __name__ == "__main__":
     unittest.main()
