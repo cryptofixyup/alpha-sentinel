@@ -105,3 +105,59 @@ test('simulation receives only a bound transaction', () => {
   assert.equal(result.ok, true);
   assert.equal(d.snapshot().lifecycle, STATES.SIMULATED);
 });
+
+const BAD_CLOCKS = [
+  ['negative', -1],
+  ['fractional', 1.5],
+  ['NaN', NaN],
+  ['positive infinity', Infinity],
+  ['negative infinity', -Infinity],
+  ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+  ['numeric string', '2000'],
+  ['null', null],
+];
+
+function simulatedDaemon(proposalId) {
+  const d = daemon();
+  validateProposal(d, proposalId);
+  d.bind({ actor: 'operator' });
+  d.simulate({ actor: 'operator' });
+  return d;
+}
+
+for (const [label, clock] of BAD_CLOCKS) {
+  test(`enterTimelock rejects ${label} without advancing lifecycle`, () => {
+    const d = simulatedDaemon(`clock-enter-${label}`);
+    assert.throws(() => d.enterTimelock({ actor: 'operator', unlockAt: clock }), /INVALID_UNLOCK_TIME/);
+    assert.equal(d.snapshot().lifecycle, STATES.SIMULATED);
+  });
+
+  test(`resimulate rejects ${label} without advancing lifecycle`, () => {
+    const d = simulatedDaemon(`clock-resim-${label}`);
+    d.enterTimelock({ actor: 'operator', unlockAt: 2000 });
+    assert.throws(() => d.resimulate({ actor: 'operator', now: clock }), /INVALID_CLOCK_TIME/);
+    assert.equal(d.snapshot().lifecycle, STATES.TIMED_WAIT);
+  });
+
+  test(`approve rejects ${label} without advancing lifecycle`, () => {
+    const d = simulatedDaemon(`clock-approve-${label}`);
+    d.enterTimelock({ actor: 'operator', unlockAt: 2000 });
+    d.resimulate({ actor: 'operator', now: 2000 });
+    assert.equal(d.snapshot().lifecycle, STATES.RE_SIMULATED);
+    assert.throws(() => d.approve({ actor: 'operator', now: clock }), /INVALID_CLOCK_TIME/);
+    assert.equal(d.snapshot().lifecycle, STATES.RE_SIMULATED);
+  });
+}
+
+test('timelock boundary rejects one millisecond early and allows exact unlock', () => {
+  const d = simulatedDaemon('clock-boundary');
+  d.enterTimelock({ actor: 'operator', unlockAt: 2000 });
+  assert.throws(() => d.resimulate({ actor: 'operator', now: 1999 }), /TIMELOCK_ACTIVE/);
+  assert.equal(d.snapshot().lifecycle, STATES.TIMED_WAIT);
+  d.resimulate({ actor: 'operator', now: 2000 });
+  assert.equal(d.snapshot().lifecycle, STATES.RE_SIMULATED);
+  assert.throws(() => d.approve({ actor: 'operator', now: 1999 }), /TIMELOCK_ACTIVE/);
+  assert.equal(d.snapshot().lifecycle, STATES.RE_SIMULATED);
+  d.approve({ actor: 'operator', now: 2000 });
+  assert.equal(d.snapshot().lifecycle, STATES.APPROVED);
+});
