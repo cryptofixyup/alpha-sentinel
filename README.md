@@ -1,6 +1,10 @@
 # Alpha Sentinel
 
-**AI security and authorization framework for autonomous agents**
+**Deterministic authorization controls for autonomous AI agents**
+
+[Architecture](#control-flow) · [Security boundaries](#what-is-and-is-not-verified) · [Evidence](#current-status-and-ci-evidence) · [Run tests](#getting-started) · [Repository](#repository-structure)
+
+> **Research-stage software — not production-certified.** Components and regression tests exist; live execution guarantees and isolated key custody have not been established.
 
 Alpha Sentinel is a security-first, deterministic control plane designed to separate AI reasoning from execution authority.
 
@@ -14,6 +18,32 @@ The principle describes the target architecture. It is **not** a claim that ever
 Autonomous AI agents can interact with consequential systems, including blockchain, DeFi, and financial automation. Model-generated decisions must not serve as the final authorization boundary.
 
 Alpha Sentinel explores independently enforceable deterministic controls before consequential actions are authorized.
+
+## Control flow
+
+```text
+AI / model output
+       |
+       v
+Deterministic risk + policy checks
+       |
+       v
+Proposal and transaction binding
+       |
+       v
+Simulation / re-simulation
+       |
+       v
+Timelock + exact-transaction approval
+       |
+       v
+Isolated-signer interface (fail-closed default)
+       |
+       v
+Broadcast + independent verification (not end-to-end demonstrated)
+```
+
+This is a **target authorization sequence**, not evidence that every stage is integrated in a production deployment. A model recommendation must never itself constitute authorization.
 
 ## Key Capabilities
 
@@ -34,6 +64,17 @@ Alpha Sentinel explores independently enforceable deterministic controls before 
 | Isolated Signing | Signer abstraction exists; default signer refuses to sign, and operational isolated signing is not demonstrated |
 | Lifecycle State Machine | Explicit transitions and recovery/replay controls |
 | Audit & Verification | Evidence checks and regression tests; live broadcast and independent receipt verification are not demonstrated end to end |
+
+## What is and is not verified
+
+| Area | Evidence boundary |
+| --- | --- |
+| Deterministic controls | Implementations and bounded regression tests exist |
+| Simulation | Interface and test coverage; real-chain correctness depends on a trusted simulator |
+| Approval / timelock | Authorization logic and fixtures; no claim of adversarial production validation |
+| Key isolation | Fail-closed signer interface; operational isolated custody unverified |
+| Broadcast / receipt | End-to-end live verification unverified |
+| CI | Historical results are commit-specific; see linked workflow runs below |
 
 ## Current Status and CI Evidence
 
