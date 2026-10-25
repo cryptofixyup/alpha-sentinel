@@ -1,8 +1,13 @@
-# Recovered JEV-to-Gemini reference router
+# JEV-to-Gemini reference router: probability validation repair
 
-Status: recovered experiment, offline unit tests only. No production integration.
+Status: isolated experiment with offline regression tests. Release HOLD.
+No production integration or live provider evaluation is claimed.
 
-This directory preserves three previously supplied artifacts byte-for-byte:
+## Historical provenance
+
+The original recovery is preserved at commit
+`480774972bbcc392c164dc9f5b89ad46edc7b935` on
+`recovery/jev-router-20261024`.
 
 | Artifact | Recorded creation date (UTC) | Original location |
 | --- | --- | --- |
@@ -10,21 +15,38 @@ This directory preserves three previously supplied artifacts byte-for-byte:
 | `jev_gemini_router.py` | 2026-10-18 | LOST & FOUND |
 | `test_jev_gemini_router.py` | 2026-10-18 | LOST & FOUND |
 
-`SOURCE.sha256` records the recovered bytes. The research note preserves historical
-claims and citations; importing it does not independently validate the paper,
-model names, reported benchmark numbers, or current provider API contracts.
+`SOURCE.sha256` is an unchanged historical manifest for the original recovered
+bytes at that commit. It is not a checksum manifest for this repaired tree.
+The router and tests have deliberately changed; `jev_choice_validation.py` is
+new. Verify the historical manifest only in a checkout of the original recovery
+commit. Do not run it against the repaired files as an acceptance check.
+
+The research note preserves historical claims and citations. It does not
+independently validate the paper, model identifiers, benchmark figures, or
+current provider contracts.
 
 ## Purpose and isolation
 
-The router classifies a prompt and selects a generation model, escalates a
-low-confidence simple classification, or requests review. Its exact FAQ can be
-answered without any provider call. The recovered tests inject a fake transport.
-This differs from the existing `typesafe_labeler.py`, which classifies security
-concerns using the TypeSafe SDK. Neither component grants execution authority.
+The router classifies prompts, selects a generation model, escalates a
+low-confidence simple classification, or requests review. An exact FAQ can be
+answered without a provider call. Tests inject a fake transport.
 
 There is no connection to the authorization daemon, signing, transaction
-execution, or the separate approved-proposal-dispatch design. No existing
-runtime file was modified for this recovery.
+execution, or the separate approved-proposal-dispatch design. This experiment
+grants no execution authority.
+
+## Repair contract
+
+Before Gemini routing, the response must contain exactly four route probabilities:
+`simple_task`, `complex_task`, `needs_review`, and `other`.
+Each must be a finite number in [0, 1], excluding booleans. Their sum must be
+within an absolute tolerance of 1e-6 of one. The selected route must be the
+unique probability maximum; ties and mismatches are rejected.
+
+Confidence is independently validated as a finite number in [0, 1], excluding
+booleans. No confidence=selected-probability relationship is assumed.
+This is internal consistency validation, not proof of provider compatibility
+or calibration.
 
 ## Offline verification
 
@@ -33,37 +55,43 @@ From the repository root, with Python 3.11 or later:
 ```bash
 python -m unittest discover -s experiments/jev-router -p 'test_*.py' -v
 python -m compileall -q experiments/jev-router
-(cd experiments/jev-router && sha256sum --check SOURCE.sha256)
 ```
 
-The dedicated `JEV router recovery` workflow checks out the exact PR head and
-runs all 11 recovered tests with Python 3.11. It needs no provider credentials,
-external model requests, or additional Python packages. Existing repository CI
-also runs independently. Test totals from overlapping suites must not be added.
+The `JEV router offline tests` workflow checks out and records the exact PR head.
+It runs the original routing tests and added table-driven regressions covering
+probability shapes and keys, nonfinite/out-of-range/invalid values,
+normalization, ties, choice mismatch, and independent confidence.
+Rejected response tests assert that no Gemini request occurs.
+No provider credentials, model requests, or additional packages are needed.
+Passing these mocked tests does not measure model quality.
 
-A red-before-green implementation test is not applicable to this byte-preserving
-recovery: behavior is unchanged. Verification consists of source hash equality,
-execution of the recovered tests, compilation, and repository CI. The tests'
-existence does not establish that they ran successfully before this recovery.
+## Merge and release gates
+
+The experimental repair may be reviewed independently from release readiness.
+Merge evidence consists of passing exact-head offline CI, review of the bounded
+repair, and a conflict-free PR. The owner has removed the PR-specific signing
+hold; this does not alter repository rules or make unsigned commits verified.
+
+Before release:
+- Pin and verify the JEV and Gemini model versions, endpoints, authentication,
+  response contracts, and version-specific confidence semantics.
+- Complete a separate held-out routing evaluation with acceptance thresholds
+  defined before scoring. Report accuracy, selective risk, coverage, and
+  routing cost against a stated baseline. Keep calibration and held-out data
+  separate. The 0.90 confidence threshold remains an uncalibrated example.
+- Preserve the transport and Gemini-response follow-up gates below.
 
 ## Known limits and follow-up gates
 
-- The 0.90 threshold is an uncalibrated example. Model identifiers, endpoint
-  availability, authentication and response contracts have not been live-tested.
 - The test named `test_jev_request_matches_documented_schema` checks fixture
   construction only; it is not independent provider conformance evidence.
-- Confidence is validated, but the returned probability distribution is not
-  checked for completeness, normalization or agreement with the selected label.
 - The HTTP helper uses default urllib redirect behavior; credential forwarding
   and destination controls need review before enabling real requests.
 - The per-request timeout is not a proven total wall-clock deadline. Response
-  size is bounded, but duplicate JSON keys and nonstandard numeric constants are
-  not explicitly rejected by the transport parser.
+  size is bounded, but duplicate JSON keys and nonstandard numeric constants
+  are not explicitly rejected by the transport parser.
 - Gemini finish reasons, safety metadata and partial-response handling require
-  review. Neither accuracy, selective risk, cost reduction nor prompt-injection
-  resistance has been measured on a local held-out dataset.
+  review. Accuracy, selective risk, cost reduction and prompt-injection
+  resistance have not been measured on a local held-out dataset.
 - Manually invoking the CLI for a non-FAQ prompt can send that prompt to external
   providers and incur charges if credentials are configured. CI does not do so.
-
-Preserve this baseline when hardening: add a test that reproduces each concrete
-defect before changing behavior, and document deliberate changes to source hashes.

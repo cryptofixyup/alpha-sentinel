@@ -124,5 +124,98 @@ class RouterTests(unittest.TestCase):
             router.handle("Prompt", inconsistent)
         self.assertEqual(self.calls, [router.JEV_ENDPOINT])
 
+
+    def assert_answer_rejected(self, answer):
+        calls = []
+
+        def transport(url, payload, headers, timeout):
+            calls.append(url)
+            if url != router.JEV_ENDPOINT:
+                self.fail("Rejected classifier response reached Gemini")
+            return {"answers": {"route": answer}}
+
+        with self.assertRaises(router.RoutingError):
+            router.handle("Prompt", transport)
+        self.assertEqual(calls, [router.JEV_ENDPOINT])
+
+    def test_probability_shapes_fail_closed(self):
+        valid = jev_answer()["answers"]["route"]["probabilities"]
+        cases = {
+            "missing": None,
+            "list": list(valid.values()),
+            "empty": {},
+            "extra_key": {**valid, "unexpected": 0.0},
+            "wrong_key": {**{k: v for k, v in valid.items() if k != "other"},
+                          "unexpected": valid["other"]},
+            "sum_too_low": dict.fromkeys(valid, 0.1),
+            "sum_too_high": dict.fromkeys(valid, 0.4),
+            "tie": {"simple_task": 0.4, "complex_task": 0.4,
+                    "needs_review": 0.1, "other": 0.1},
+        }
+        for name, probabilities in cases.items():
+            with self.subTest(case=name):
+                answer = jev_answer()["answers"]["route"]
+                answer["probabilities"] = probabilities
+                self.assert_answer_rejected(answer)
+
+    def test_invalid_probability_values_fail_closed(self):
+        cases = (True, False, None, "0.99", [], {},
+                 float("nan"), float("inf"), float("-inf"), -0.01, 1.01)
+        for key in ("simple_task", "complex_task", "needs_review", "other"):
+            for value in cases:
+                with self.subTest(key=key, value=value):
+                    answer = jev_answer()["answers"]["route"]
+                    answer["probabilities"][key] = value
+                    self.assert_answer_rejected(answer)
+
+    def test_invalid_confidences_fail_closed(self):
+        cases = (True, False, None, "0.99", [], {},
+                 float("nan"), float("inf"), float("-inf"), -0.01, 1.01)
+        for value in cases:
+            with self.subTest(confidence=value):
+                answer = jev_answer()["answers"]["route"]
+                answer["confidence"] = value
+                self.assert_answer_rejected(answer)
+
+    def test_confidence_is_independent_of_selected_probability(self):
+        for confidence, expected_model in (
+                (0.0, router.COMPLEX_MODEL),
+                (0.6, router.COMPLEX_MODEL),
+                (0.9, router.CHEAP_MODEL),
+                (1.0, router.CHEAP_MODEL)):
+            with self.subTest(confidence=confidence):
+                self.calls = []
+
+                def transport(url, payload, headers, timeout):
+                    if url == router.JEV_ENDPOINT:
+                        self.calls.append((url, payload, headers, timeout))
+                        response = jev_answer()
+                        answer = response["answers"]["route"]
+                        answer["confidence"] = confidence
+                        answer["probabilities"] = {
+                            "simple_task": 0.7, "complex_task": 0.2,
+                            "needs_review": 0.1, "other": 0.0}
+                        return response
+                    return self.transport(url, payload, headers, timeout)
+
+                result = router.handle("Prompt", transport)
+                self.assertEqual(result["classifier_confidence"], confidence)
+                self.assertEqual(result["model"], expected_model)
+                self.assertEqual(len(self.calls), 2)
+
+    def test_normalization_tolerance(self):
+        for delta, accepted in ((0.0000005, True), (-0.0000005, True),
+                                (0.000002, False), (-0.000002, False)):
+            with self.subTest(delta=delta):
+                answer = jev_answer()["answers"]["route"]
+                answer["probabilities"] = {
+                    "simple_task": 0.7, "complex_task": 0.2,
+                    "needs_review": 0.1 + delta, "other": 0.0}
+                if accepted:
+                    route, confidence = router.validate_choice(answer)
+                    self.assertEqual((route, confidence), ("simple_task", 0.99))
+                else:
+                    self.assert_answer_rejected(answer)
+
 if __name__ == "__main__":
     unittest.main()
