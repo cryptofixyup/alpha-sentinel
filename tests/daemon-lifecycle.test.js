@@ -131,3 +131,22 @@ test('operator objects and legacy strings remain subject to callback authorizati
   assert.throws(() => policy.authorize({ actor: { kind: 'operator', id: 'other' }, transition: {} }), /POLICY_DENIED/);
   assert.throws(() => policy.authorize({ actor: 'untrusted', transition: {} }), /POLICY_DENIED/);
 });
+
+test('policy requires explicit synchronous true before advancing durable lifecycle', () => {
+  const invalidDecisions = [undefined, null, false, 0, 1, '', 'allow', {}, [],
+    new Boolean(false), Promise.resolve(false), Promise.resolve(true)];
+  for (const decision of invalidDecisions) {
+    const policy = new Policy(() => decision);
+    const state = new DurableState();
+    const daemon = new AuthorizationDaemon({ policy, validator: new Validator(), state,
+      routerAdapter: { construct: () => ({}) },
+      simulationBoundary: { simulate: () => ({ ok: true }) } });
+    daemon.propose({ proposalId: 'explicit-authorization', proposalHash: 'hash', payload: {} });
+    const before = state.snapshot();
+    assert.throws(() => daemon.authorize({ actor: 'operator' }), /POLICY_DENIED/);
+    assert.deepEqual(state.snapshot(), before);
+    assert.equal(daemon.snapshot().lifecycle, STATES.PROPOSED);
+  }
+  assert.equal(new Policy(() => true).authorize({ actor: 'operator', transition: {} }).actor,
+    'operator');
+});

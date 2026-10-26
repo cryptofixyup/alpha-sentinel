@@ -14,7 +14,7 @@ class Policy {
       throw new Error('POLICY_DENIED');
     }
     const allowed = this.authorizer(actor, transition);
-    if (!allowed) throw new Error('POLICY_DENIED');
+    if (allowed !== true) throw new Error('POLICY_DENIED');
     return Object.freeze({ actor, transition });
   }
 }
