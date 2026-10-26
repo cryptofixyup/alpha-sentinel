@@ -7,12 +7,12 @@ routing can be tested offline. This code does not authorize external actions.
 from __future__ import annotations
 
 import json
-import math
 import os
 import sys
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from jev_choice_validation import validate_choice
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -104,13 +104,10 @@ def classify(prompt: str, transport: Callable[..., dict[str, Any]] = post_json
     answer = answers.get("route")
     if not isinstance(answer, dict) or answer.get("type") != "choice":
         raise RoutingError("Invalid Jev response schema")
-    route = answer.get("choice")
-    confidence = answer.get("confidence")
-    if route not in {"simple_task", "complex_task", "needs_review", "other"}:
-        raise RoutingError("Unrecognized Jev route")
-    if (isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-            or not math.isfinite(confidence) or not 0 <= confidence <= 1):
-        raise RoutingError("Invalid Jev confidence")
+    try:
+        route, confidence = validate_choice(answer)
+    except ValueError as exc:
+        raise RoutingError(str(exc)) from exc
     usage = result.get("usage")
     return route, float(confidence), usage if isinstance(usage, dict) else {}
 
