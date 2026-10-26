@@ -8,8 +8,13 @@ class Policy {
   }
 
   authorize({ actor, transition }) {
+    // Classification must be supplied by a trusted ingress, never by model text.
+    if (actor && typeof actor === 'object' &&
+        (actor.kind === 'agent' || actor.kind === 'model')) {
+      throw new Error('POLICY_DENIED');
+    }
     const allowed = this.authorizer(actor, transition);
-    if (!allowed) throw new Error('POLICY_DENIED');
+    if (allowed !== true) throw new Error('POLICY_DENIED');
     return Object.freeze({ actor, transition });
   }
 }
