@@ -34,7 +34,8 @@ Do not grant direct SELECT, INSERT, UPDATE, DELETE, or TRUNCATE on `audit.events
 - Each append has a caller-provided deadline. A timeout is an uncertain commit outcome, not proof that the event was absent.
 - Retrying the same event ID and metadata digest is idempotent. Reusing an ID with different metadata fails closed.
 - Sink failures are mapped to fixed error variants; raw SQL errors are not returned to the caller.
-- Callers must return no success for a mandatory-audit request until append acknowledgement succeeds. This module is not yet wired into the HTTP inspection route, so the current prototype endpoint does not gain this guarantee merely by including the module.
+- The HTTP inspection route now constructs a metadata-only event for each parsed inspection decision and awaits `AuditSink::append` before returning its decision response. If event construction or persistence fails, the route returns a generic `503`; an uncertain commit outcome is not treated as success. The process refuses to start without `DATABASE_URL` or if the PostgreSQL connection cannot be established.
+- The invariant is scoped to parsed requests handled by `/v1/agent/invoke`. `/health` is a liveness endpoint, not an audited inspection decision. Requests rejected by HTTP body-limit or JSON-extraction middleware can be rejected before the handler and are not yet represented by this handler-level event.
 
 ## Test execution
 
