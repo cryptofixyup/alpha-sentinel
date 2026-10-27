@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS audit.events (
     outcome text NOT NULL CHECK (outcome IN (
         'inspection_allowed',
         'policy_rejected',
+        'circuit_open',
         'invalid_request',
         'request_too_large',
         'timed_out',
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS audit.events (
     )),
     reason_code text NULL CHECK (reason_code IS NULL OR reason_code IN (
         'SIGNATURE_MATCH',
+        'CIRCUIT_OPEN',
         'MALFORMED_REQUEST',
         'BODY_LIMIT_EXCEEDED',
         'DEADLINE_EXCEEDED',
@@ -40,13 +42,14 @@ CREATE TABLE IF NOT EXISTS audit.events (
     CHECK (
         (decision = 'allow' AND outcome = 'inspection_allowed' AND rule_id IS NULL)
         OR
-        (decision = 'reject' AND outcome IN ('policy_rejected', 'invalid_request', 'request_too_large'))
+        (decision = 'reject' AND outcome IN ('policy_rejected', 'circuit_open', 'invalid_request', 'request_too_large'))
         OR
         (decision = 'error' AND outcome IN ('timed_out', 'internal_error'))
     ),
     CHECK (
         (outcome = 'inspection_allowed' AND reason_code IS NULL AND rule_id IS NULL)
         OR (outcome = 'policy_rejected' AND reason_code = 'SIGNATURE_MATCH' AND rule_id IS NOT NULL)
+        OR (outcome = 'circuit_open' AND reason_code = 'CIRCUIT_OPEN' AND rule_id IS NULL)
         OR (outcome = 'invalid_request' AND reason_code = 'MALFORMED_REQUEST' AND rule_id IS NULL)
         OR (outcome = 'request_too_large' AND reason_code = 'BODY_LIMIT_EXCEEDED' AND rule_id IS NULL)
         OR (outcome = 'timed_out' AND reason_code = 'DEADLINE_EXCEEDED' AND rule_id IS NULL)
