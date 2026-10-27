@@ -178,6 +178,7 @@ impl AuditEvent {
         match (outcome, rule_id, reason_code) {
             (Outcome::InspectionAllowed, None, None) => {}
             (Outcome::PolicyRejected, Some(_), Some(ReasonCode::SignatureMatch)) => {}
+            (Outcome::CircuitOpen, None, Some(ReasonCode::CircuitOpen)) => {}
             (Outcome::InvalidRequest, None, Some(ReasonCode::MalformedRequest)) => {}
             (Outcome::RequestTooLarge, None, Some(ReasonCode::BodyLimitExceeded)) => {}
             (Outcome::TimedOut, None, Some(ReasonCode::DeadlineExceeded)) => {}
