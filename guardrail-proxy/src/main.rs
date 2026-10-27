@@ -16,8 +16,7 @@ use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::Tra
 
 use alpha_sentinel_guardrail_proxy::{
     audit::{
-        AuditEvent, AuditSink, Decision as AuditDecision, Outcome, PgAuditSink,
-        ReasonCode, RuleId,
+        AuditEvent, AuditSink, Decision as AuditDecision, Outcome, PgAuditSink, ReasonCode, RuleId,
     },
     Decision, SentinelEngine, MAX_PAYLOAD_BYTES,
 };
