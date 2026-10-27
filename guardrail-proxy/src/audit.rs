@@ -362,6 +362,25 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn saturated_sink_rejects_without_waiting_for_database() {
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgres://invalid:invalid@127.0.0.1:1/unused")
+            .unwrap();
+        let sink = PgAuditSink::from_pool(pool);
+        let mut permits = Vec::new();
+        for _ in 0..MAX_CONCURRENT_WRITES {
+            permits.push(Arc::clone(&sink.write_slots).acquire_owned().await.unwrap());
+        }
+        let event = event();
+        assert_eq!(
+            sink.append(&event, Duration::from_secs(1)).await.unwrap_err(),
+            AuditSinkError::Saturated
+        );
+        drop(permits);
+    }
+
     #[test]
     fn rejects_free_form_service_version() {
         assert_eq!(
