@@ -150,9 +150,9 @@ impl AuditEvent {
         }
         if service_version.is_empty()
             || service_version.len() > 64
-            || !service_version.bytes().all(|b| {
-                b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-')
-            })
+            || !service_version
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
         {
             return Err(EventBuildError::InvalidServiceVersion);
         }
@@ -226,11 +226,7 @@ pub enum AuditSinkError {
 
 #[async_trait]
 pub trait AuditSink: Send + Sync {
-    async fn append(
-        &self,
-        event: &AuditEvent,
-        deadline: Duration,
-    ) -> Result<(), AuditSinkError>;
+    async fn append(&self, event: &AuditEvent, deadline: Duration) -> Result<(), AuditSinkError>;
 }
 
 #[derive(Clone)]
@@ -247,11 +243,17 @@ impl PgAuditSink {
             .connect(database_url)
             .await
             .map_err(|_| AuditSinkError::Unavailable)?;
-        Ok(Self { pool, write_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_WRITES)) })
+        Ok(Self {
+            pool,
+            write_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_WRITES)),
+        })
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool, write_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_WRITES)) }
+        Self {
+            pool,
+            write_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_WRITES)),
+        }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -261,11 +263,7 @@ impl PgAuditSink {
 
 #[async_trait]
 impl AuditSink for PgAuditSink {
-    async fn append(
-        &self,
-        event: &AuditEvent,
-        deadline: Duration,
-    ) -> Result<(), AuditSinkError> {
+    async fn append(&self, event: &AuditEvent, deadline: Duration) -> Result<(), AuditSinkError> {
         // Reject overload immediately instead of accumulating unbounded waiters.
         let _permit = Arc::clone(&self.write_slots)
             .try_acquire_owned()
@@ -346,18 +344,32 @@ mod tests {
     fn rejects_unbounded_fields() {
         assert_eq!(
             AuditEvent::new(
-                Uuid::new_v4(), Utc::now(), Decision::Allow, None,
-                Outcome::InspectionAllowed, None, MAX_DURATION_MS + 1, 0,
+                Uuid::new_v4(),
+                Utc::now(),
+                Decision::Allow,
+                None,
+                Outcome::InspectionAllowed,
+                None,
+                MAX_DURATION_MS + 1,
+                0,
                 env!("CARGO_PKG_VERSION"),
-            ).unwrap_err(),
+            )
+            .unwrap_err(),
             EventBuildError::DurationOutOfRange
         );
         assert_eq!(
             AuditEvent::new(
-                Uuid::new_v4(), Utc::now(), Decision::Allow, None,
-                Outcome::InspectionAllowed, None, 0, MAX_PAYLOAD_BYTES + 1,
+                Uuid::new_v4(),
+                Utc::now(),
+                Decision::Allow,
+                None,
+                Outcome::InspectionAllowed,
+                None,
+                0,
+                MAX_PAYLOAD_BYTES + 1,
                 env!("CARGO_PKG_VERSION"),
-            ).unwrap_err(),
+            )
+            .unwrap_err(),
             EventBuildError::PayloadSizeOutOfRange
         );
     }
@@ -375,7 +387,9 @@ mod tests {
         }
         let event = event();
         assert_eq!(
-            sink.append(&event, Duration::from_secs(1)).await.unwrap_err(),
+            sink.append(&event, Duration::from_secs(1))
+                .await
+                .unwrap_err(),
             AuditSinkError::Saturated
         );
         drop(permits);
@@ -385,9 +399,17 @@ mod tests {
     fn rejects_free_form_service_version() {
         assert_eq!(
             AuditEvent::new(
-                Uuid::new_v4(), Utc::now(), Decision::Allow, None,
-                Outcome::InspectionAllowed, None, 0, 0, "/tmp/secret",
-            ).unwrap_err(),
+                Uuid::new_v4(),
+                Utc::now(),
+                Decision::Allow,
+                None,
+                Outcome::InspectionAllowed,
+                None,
+                0,
+                0,
+                "/tmp/secret",
+            )
+            .unwrap_err(),
             EventBuildError::InvalidServiceVersion
         );
     }
