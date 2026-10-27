@@ -90,7 +90,7 @@ async fn audit_rejection(
         outcome,
         Some(reason_code),
         0,
-        payload_bytes.min(MAX_PAYLOAD_BYTES),
+        payload_bytes.min(MAX_PAYLOAD_BYTES as u64),
         env!("CARGO_PKG_VERSION"),
     ) {
         Ok(event) => event,
@@ -129,7 +129,7 @@ async fn audit_prehandler_rejections(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
     {
-        if length > MAX_PAYLOAD_BYTES {
+        if length > MAX_PAYLOAD_BYTES as u64 {
             if !audit_rejection(
                 &state,
                 Outcome::RequestTooLarge,
@@ -419,40 +419,77 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_json_is_audited_before_400_response() {
-        let sink = Arc::new(TestSink { succeed: true, calls: AtomicUsize::new(0) });
-        let response = test_app(sink.clone()).oneshot(
-            Request::post("/v1/agent/invoke")
-                .header("content-type", "application/json")
-                .body(Body::from("{"))
-                .unwrap(),
-        ).await.unwrap();
+        let sink = Arc::new(TestSink {
+            succeed: true,
+            calls: AtomicUsize::new(0),
+        });
+        let response = test_app(sink.clone())
+            .oneshot(
+                Request::post("/v1/agent/invoke")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
+    async fn malformed_json_fails_closed_when_audit_append_fails() {
+        let sink = Arc::new(TestSink {
+            succeed: false,
+            calls: AtomicUsize::new(0),
+        });
+        let response = test_app(sink.clone())
+            .oneshot(
+                Request::post("/v1/agent/invoke")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn unsupported_content_type_is_audited_before_415_response() {
-        let sink = Arc::new(TestSink { succeed: true, calls: AtomicUsize::new(0) });
-        let response = test_app(sink.clone()).oneshot(
-            Request::post("/v1/agent/invoke")
-                .header("content-type", "text/plain")
-                .body(Body::from("{}"))
-                .unwrap(),
-        ).await.unwrap();
+        let sink = Arc::new(TestSink {
+            succeed: true,
+            calls: AtomicUsize::new(0),
+        });
+        let response = test_app(sink.clone())
+            .oneshot(
+                Request::post("/v1/agent/invoke")
+                    .header("content-type", "text/plain")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
         assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
     async fn declared_oversize_body_is_audited_before_413_response() {
-        let sink = Arc::new(TestSink { succeed: true, calls: AtomicUsize::new(0) });
-        let response = test_app(sink.clone()).oneshot(
-            Request::post("/v1/agent/invoke")
-                .header("content-type", "application/json")
-                .header("content-length", (MAX_PAYLOAD_BYTES + 1).to_string())
-                .body(Body::empty())
-                .unwrap(),
-        ).await.unwrap();
+        let sink = Arc::new(TestSink {
+            succeed: true,
+            calls: AtomicUsize::new(0),
+        });
+        let response = test_app(sink.clone())
+            .oneshot(
+                Request::post("/v1/agent/invoke")
+                    .header("content-type", "application/json")
+                    .header("content-length", (MAX_PAYLOAD_BYTES + 1).to_string())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
     }
