@@ -174,10 +174,16 @@ async fn runtime_role_can_execute_append_but_cannot_access_table_directly() {
     .unwrap();
     assert!(can_execute, "runtime role needs EXECUTE on append function");
 
-    sqlx::query(&format!("DROP ROLE \"{role}\""))
+    // Remove the test role's grants before dropping the role; PostgreSQL
+    // refuses DROP ROLE while schema/function privileges still reference it.
+    sqlx::query(&format!("DROP OWNED BY \\"{role}\\""))
         .execute(&pool)
         .await
-        .unwrap();
+        .expect("test role grants must be removable");
+    sqlx::query(&format!("DROP ROLE \\"{role}\\""))
+        .execute(&pool)
+        .await
+        .expect("disposable test role must be removable");
 }
 
 #[tokio::test]
