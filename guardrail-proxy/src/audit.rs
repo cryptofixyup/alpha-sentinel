@@ -341,7 +341,7 @@ mod tests {
     fn rejects_unbounded_fields() {
         assert_eq!(
             AuditEvent::new(
-            Utc::now(),
+                Utc::now(),
                 Decision::Allow,
                 None,
                 Outcome::InspectionAllowed,
@@ -355,7 +355,7 @@ mod tests {
         );
         assert_eq!(
             AuditEvent::new(
-            Utc::now(),
+                Utc::now(),
                 Decision::Allow,
                 None,
                 Outcome::InspectionAllowed,
@@ -394,7 +394,7 @@ mod tests {
     fn rejects_free_form_service_version() {
         assert_eq!(
             AuditEvent::new(
-            Utc::now(),
+                Utc::now(),
                 Decision::Allow,
                 None,
                 Outcome::InspectionAllowed,
