@@ -1,13 +1,26 @@
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::post,
+    Json, Router,
+};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::{Duration, Instant}};
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 
-use alpha_sentinel_guardrail_proxy::{Decision, SentinelEngine, MAX_PAYLOAD_BYTES};
+use alpha_sentinel_guardrail_proxy::{
+    audit::{AuditEvent, AuditSink, Decision as AuditDecision, Outcome, PgAuditSink, ReasonCode, RuleId},
+    Decision, SentinelEngine, MAX_PAYLOAD_BYTES,
+};
+
+const AUDIT_APPEND_DEADLINE: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 struct AppState {
     engine: Arc<SentinelEngine>,
+    audit_sink: Arc<PgAuditSink>,
 }
 
 #[derive(Deserialize)]
@@ -21,6 +34,17 @@ struct InspectResponse {
     reason: &'static str,
 }
 
+fn unavailable() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(InspectResponse {
+            decision: "REJECT",
+            reason: "inspection unavailable; audit acknowledgement not confirmed",
+        }),
+    )
+        .into_response()
+}
+
 async fn health() -> impl IntoResponse {
     (
         StatusCode::OK,
@@ -28,40 +52,77 @@ async fn health() -> impl IntoResponse {
     )
 }
 
-async fn inspect(
-    State(state): State<AppState>,
-    Json(request): Json<InspectRequest>,
-) -> impl IntoResponse {
-    match state.engine.inspect(request.prompt.as_bytes()) {
+async fn inspect(State(state): State<AppState>, Json(request): Json<InspectRequest>) -> Response {
+    let started = Instant::now();
+    let payload_bytes = request.prompt.len() as u64;
+    let decision = state.engine.inspect(request.prompt.as_bytes());
+
+    let (status, response, audit_decision, outcome, rule_id, reason_code, reason) = match decision {
         Decision::Allow => (
             StatusCode::OK,
-            Json(InspectResponse {
-                decision: "ALLOW",
-                reason: "no configured signature matched",
-            }),
+            "ALLOW",
+            AuditDecision::Allow,
+            Outcome::InspectionAllowed,
+            None,
+            None,
+            "no configured signature matched",
         ),
         Decision::RejectSignature => (
             StatusCode::FORBIDDEN,
-            Json(InspectResponse {
-                decision: "REJECT",
-                reason: "configured threat signature matched; circuit opened",
-            }),
+            "REJECT",
+            AuditDecision::Reject,
+            Outcome::PolicyRejected,
+            Some(RuleId::ConfiguredSignature),
+            Some(ReasonCode::SignatureMatch),
+            "configured threat signature matched; circuit opened",
         ),
         Decision::RejectCircuitOpen => (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(InspectResponse {
-                decision: "REJECT",
-                reason: "circuit is open",
-            }),
+            "REJECT",
+            AuditDecision::Reject,
+            Outcome::CircuitOpen,
+            None,
+            Some(ReasonCode::CircuitOpen),
+            "circuit is open",
         ),
         Decision::RejectOversized => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            Json(InspectResponse {
-                decision: "REJECT",
-                reason: "payload exceeds inspection limit",
-            }),
+            "REJECT",
+            AuditDecision::Reject,
+            Outcome::RequestTooLarge,
+            None,
+            Some(ReasonCode::BodyLimitExceeded),
+            "payload exceeds inspection limit",
         ),
+    };
+
+    let duration_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+    let event = match AuditEvent::new(
+        Utc::now(),
+        audit_decision,
+        rule_id,
+        outcome,
+        reason_code,
+        duration_ms,
+        payload_bytes,
+        env!("CARGO_PKG_VERSION"),
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
+
+    // Do not emit the inspection decision until PostgreSQL confirms the append.
+    // Timeout is ambiguous commit state; return 503 and let a caller retry safely.
+    if state
+        .audit_sink
+        .append(&event, AUDIT_APPEND_DEADLINE)
+        .await
+        .is_err()
+    {
+        return unavailable();
     }
+
+    (status, Json(InspectResponse { decision: response, reason })).into_response()
 }
 
 #[tokio::main]
@@ -70,8 +131,15 @@ async fn main() {
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse()
         .expect("SENTINEL_BIND must be a valid socket address");
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL is required: mandatory audit persistence is fail-closed");
+    let audit_sink = PgAuditSink::connect(&database_url)
+        .await
+        .expect("PostgreSQL audit sink connection failed; refusing to start");
+
     let state = AppState {
         engine: Arc::new(SentinelEngine::new()),
+        audit_sink: Arc::new(audit_sink),
     };
     let app = Router::new()
         .route("/health", axum::routing::get(health))
