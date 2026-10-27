@@ -45,9 +45,12 @@ CREATE TABLE IF NOT EXISTS audit.events (
         (decision = 'error' AND outcome IN ('timed_out', 'internal_error'))
     ),
     CHECK (
-        (outcome = 'policy_rejected' AND decision = 'reject')
-        OR outcome <> 'policy_rejected'
-        OR rule_id IS NOT NULL
+        (outcome = 'inspection_allowed' AND reason_code IS NULL AND rule_id IS NULL)
+        OR (outcome = 'policy_rejected' AND reason_code = 'SIGNATURE_MATCH' AND rule_id IS NOT NULL)
+        OR (outcome = 'invalid_request' AND reason_code = 'MALFORMED_REQUEST' AND rule_id IS NULL)
+        OR (outcome = 'request_too_large' AND reason_code = 'BODY_LIMIT_EXCEEDED' AND rule_id IS NULL)
+        OR (outcome = 'timed_out' AND reason_code = 'DEADLINE_EXCEEDED' AND rule_id IS NULL)
+        OR (outcome = 'internal_error' AND reason_code = 'INSPECTION_FAILURE' AND rule_id IS NULL)
     )
 );
 
