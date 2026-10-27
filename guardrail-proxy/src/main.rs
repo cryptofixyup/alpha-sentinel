@@ -60,6 +60,23 @@ async fn health() -> impl IntoResponse {
     )
 }
 
+async fn audit_timeout(state: &AppState) -> bool {
+    let event = match AuditEvent::new(
+        Utc::now(),
+        AuditDecision::Error,
+        None,
+        Outcome::TimedOut,
+        Some(ReasonCode::DeadlineExceeded),
+        0,
+        0,
+        env!("CARGO_PKG_VERSION"),
+    ) {
+        Ok(event) => event,
+        Err(_) => return false,
+    };
+    state.audit_sink.append(&event, AUDIT_APPEND_DEADLINE).await.is_ok()
+}
+
 async fn audit_rejection(
     state: &AppState,
     outcome: Outcome,
@@ -83,7 +100,12 @@ async fn audit_rejection(
 }
 
 fn is_json_content_type(value: &str) -> bool {
-    let media_type = value.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let media_type = value
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     media_type == "application/json"
         || (media_type.starts_with("application/") && media_type.ends_with("+json"))
 }
@@ -118,17 +140,39 @@ async fn audit_prehandler_rejections(
             {
                 return unavailable();
             }
-            return (StatusCode::PAYLOAD_TOO_LARGE, Json(InspectResponse {
-                decision: "REJECT",
-                reason: "payload exceeds inspection limit",
-            })).into_response();
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(InspectResponse {
+                    decision: "REJECT",
+                    reason: "payload exceeds inspection limit",
+                }),
+            )
+                .into_response();
         }
     }
 
     let (parts, body) = request.into_parts();
-    let bytes = match to_bytes(body, MAX_PAYLOAD_BYTES as usize).await {
-        Ok(bytes) => bytes,
+    let bytes = match tokio::time::timeout(
+        Duration::from_secs(3),
+        to_bytes(body, MAX_PAYLOAD_BYTES as usize),
+    )
+    .await
+    {
         Err(_) => {
+            if !audit_timeout(&state).await {
+                return unavailable();
+            }
+            return (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(InspectResponse {
+                    decision: "REJECT",
+                    reason: "request body timed out",
+                }),
+            )
+                .into_response();
+        }
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(_)) => {
             if !audit_rejection(
                 &state,
                 Outcome::RequestTooLarge,
@@ -139,14 +183,21 @@ async fn audit_prehandler_rejections(
             {
                 return unavailable();
             }
-            return (StatusCode::PAYLOAD_TOO_LARGE, Json(InspectResponse {
-                decision: "REJECT",
-                reason: "payload exceeds inspection limit",
-            })).into_response();
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(InspectResponse {
+                    decision: "REJECT",
+                    reason: "payload exceeds inspection limit",
+                }),
+            )
+                .into_response();
         }
     };
 
-    let content_type = parts.headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok());
+    let content_type = parts
+        .headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
     if !content_type.is_some_and(is_json_content_type) {
         if !audit_rejection(
             &state,
@@ -158,10 +209,14 @@ async fn audit_prehandler_rejections(
         {
             return unavailable();
         }
-        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, Json(InspectResponse {
-            decision: "REJECT",
-            reason: "unsupported content type",
-        })).into_response();
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(InspectResponse {
+                decision: "REJECT",
+                reason: "unsupported content type",
+            }),
+        )
+            .into_response();
     }
 
     if serde_json::from_slice::<InspectRequest>(&bytes).is_err() {
@@ -175,10 +230,14 @@ async fn audit_prehandler_rejections(
         {
             return unavailable();
         }
-        return (StatusCode::BAD_REQUEST, Json(InspectResponse {
-            decision: "REJECT",
-            reason: "invalid JSON request",
-        })).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(InspectResponse {
+                decision: "REJECT",
+                reason: "invalid JSON request",
+            }),
+        )
+            .into_response();
     }
 
     next.run(Request::from_parts(parts, Body::from(bytes))).await
