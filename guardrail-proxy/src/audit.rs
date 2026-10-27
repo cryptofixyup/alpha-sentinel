@@ -132,7 +132,6 @@ impl AuditEvent {
     /// Build an allowlisted metadata-only event. No request body, headers,
     /// caller-controlled ID, error string, or content fingerprint is accepted.
     pub fn new(
-        request_id: Uuid,
         timestamp: DateTime<Utc>,
         decision: Decision,
         rule_id: Option<RuleId>,
@@ -183,7 +182,7 @@ impl AuditEvent {
         let event = Self {
             schema_version: "1",
             event_type: "inspection_decision",
-            request_id,
+            request_id: Uuid::new_v4(),
             timestamp,
             decision,
             rule_id,
@@ -301,7 +300,6 @@ mod tests {
 
     fn event() -> AuditEvent {
         AuditEvent::new(
-            Uuid::new_v4(),
             Utc::now(),
             Decision::Reject,
             Some(RuleId::PromptOverride),
@@ -327,7 +325,6 @@ mod tests {
     #[test]
     fn rejects_decision_outcome_mismatch() {
         let result = AuditEvent::new(
-            Uuid::new_v4(),
             Utc::now(),
             Decision::Allow,
             None,
@@ -344,8 +341,7 @@ mod tests {
     fn rejects_unbounded_fields() {
         assert_eq!(
             AuditEvent::new(
-                Uuid::new_v4(),
-                Utc::now(),
+            Utc::now(),
                 Decision::Allow,
                 None,
                 Outcome::InspectionAllowed,
@@ -359,8 +355,7 @@ mod tests {
         );
         assert_eq!(
             AuditEvent::new(
-                Uuid::new_v4(),
-                Utc::now(),
+            Utc::now(),
                 Decision::Allow,
                 None,
                 Outcome::InspectionAllowed,
@@ -399,8 +394,7 @@ mod tests {
     fn rejects_free_form_service_version() {
         assert_eq!(
             AuditEvent::new(
-                Uuid::new_v4(),
-                Utc::now(),
+            Utc::now(),
                 Decision::Allow,
                 None,
                 Outcome::InspectionAllowed,
