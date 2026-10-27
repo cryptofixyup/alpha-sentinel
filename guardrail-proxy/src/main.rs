@@ -134,7 +134,7 @@ async fn audit_prehandler_rejections(
                 &state,
                 Outcome::RequestTooLarge,
                 ReasonCode::BodyLimitExceeded,
-                MAX_PAYLOAD_BYTES,
+                MAX_PAYLOAD_BYTES as u64,
             )
             .await
             {
@@ -177,7 +177,7 @@ async fn audit_prehandler_rejections(
                 &state,
                 Outcome::RequestTooLarge,
                 ReasonCode::BodyLimitExceeded,
-                MAX_PAYLOAD_BYTES,
+                MAX_PAYLOAD_BYTES as u64,
             )
             .await
             {
