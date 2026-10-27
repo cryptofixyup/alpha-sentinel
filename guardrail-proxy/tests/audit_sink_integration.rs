@@ -44,7 +44,9 @@ fn sample_event(id: Uuid, payload_bytes: u64) -> AuditEvent {
 
 #[tokio::test]
 async fn postgres_append_is_idempotent_and_persists_metadata_only() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let sink = PgAuditSink::from_pool(pool.clone());
     let id = Uuid::new_v4();
     let event = sample_event(id, 23);
@@ -52,14 +54,15 @@ async fn postgres_append_is_idempotent_and_persists_metadata_only() {
     sink.append(&event, Duration::from_secs(1)).await.unwrap();
     sink.append(&event, Duration::from_secs(1)).await.unwrap();
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit.events WHERE request_id = $1",
-    )
-    .bind(id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(count, 1, "same ID and digest must not create duplicate rows");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM audit.events WHERE request_id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "same ID and digest must not create duplicate rows"
+    );
 
     let persisted: (String, String, i64) = sqlx::query_as(
         "SELECT decision, outcome, payload_bytes FROM audit.events WHERE request_id = $1",
@@ -68,7 +71,10 @@ async fn postgres_append_is_idempotent_and_persists_metadata_only() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(persisted, ("reject".to_owned(), "policy_rejected".to_owned(), 23));
+    assert_eq!(
+        persisted,
+        ("reject".to_owned(), "policy_rejected".to_owned(), 23)
+    );
 
     sqlx::query("DELETE FROM audit.events WHERE request_id = $1")
         .bind(id)
@@ -79,15 +85,21 @@ async fn postgres_append_is_idempotent_and_persists_metadata_only() {
 
 #[tokio::test]
 async fn postgres_rejects_reuse_of_event_id_with_different_digest() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let sink = PgAuditSink::from_pool(pool.clone());
     let id = Uuid::new_v4();
     let original = sample_event(id, 23);
     let changed = sample_event_with_timestamp(id, 24);
 
-    sink.append(&original, Duration::from_secs(1)).await.unwrap();
+    sink.append(&original, Duration::from_secs(1))
+        .await
+        .unwrap();
     assert_eq!(
-        sink.append(&changed, Duration::from_secs(1)).await.unwrap_err(),
+        sink.append(&changed, Duration::from_secs(1))
+            .await
+            .unwrap_err(),
         AuditSinkError::IdempotencyConflict
     );
 
@@ -116,7 +128,9 @@ fn sample_event_with_timestamp(id: Uuid, payload_bytes: u64) -> AuditEvent {
 
 #[tokio::test]
 async fn pool_exhaustion_obeys_deadline() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let sink = PgAuditSink::from_pool(pool.clone());
     let held_connection = pool.acquire().await.unwrap();
     let event = sample_event(Uuid::new_v4(), 11);
@@ -128,7 +142,9 @@ async fn pool_exhaustion_obeys_deadline() {
 
 #[tokio::test]
 async fn runtime_role_can_execute_append_but_cannot_access_table_directly() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let role = format!("audit_runtime_test_{}", Uuid::new_v4().simple());
     sqlx::query(&format!("CREATE ROLE \"{role}\" NOLOGIN"))
         .execute(&pool)
@@ -146,15 +162,17 @@ async fn runtime_role_can_execute_append_but_cannot_access_table_directly() {
     .unwrap();
 
     for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
-        let allowed: bool = sqlx::query_scalar(
-            "SELECT has_table_privilege($1, 'audit.events', $2)",
-        )
-        .bind(&role)
-        .bind(privilege)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert!(!allowed, "runtime role must not have direct {privilege} privilege");
+        let allowed: bool =
+            sqlx::query_scalar("SELECT has_table_privilege($1, 'audit.events', $2)")
+                .bind(&role)
+                .bind(privilege)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            !allowed,
+            "runtime role must not have direct {privilege} privilege"
+        );
     }
     let can_execute: bool = sqlx::query_scalar(
         "SELECT has_function_privilege($1, 'audit.append_event(uuid,text,text,timestamptz,text,text,text,text,integer,bigint,text,bytea)', 'EXECUTE')",
@@ -173,13 +191,17 @@ async fn runtime_role_can_execute_append_but_cannot_access_table_directly() {
 
 #[tokio::test]
 async fn closed_pool_fails_closed_without_exposing_database_errors() {
-    let Some(pool) = test_pool().await else { return };
+    let Some(pool) = test_pool().await else {
+        return;
+    };
     let sink = PgAuditSink::from_pool(pool.clone());
     let event = sample_event(Uuid::new_v4(), 11);
     pool.close().await;
 
     assert_eq!(
-        sink.append(&event, Duration::from_millis(250)).await.unwrap_err(),
+        sink.append(&event, Duration::from_millis(250))
+            .await
+            .unwrap_err(),
         AuditSinkError::Unavailable
     );
 }
