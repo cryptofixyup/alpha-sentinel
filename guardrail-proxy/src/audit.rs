@@ -66,6 +66,8 @@ pub enum RuleId {
     EnvironmentExfiltration,
     #[serde(rename = "SIG_SQL_DROP_001")]
     SqlDrop,
+    #[serde(rename = "SIG_CONFIGURED_SIGNATURE_001")]
+    ConfiguredSignature,
 }
 
 impl RuleId {
@@ -75,6 +77,7 @@ impl RuleId {
             Self::SystemPrompt => "SIG_SYSTEM_PROMPT_001",
             Self::EnvironmentExfiltration => "SIG_ENV_EXFILTRATION_001",
             Self::SqlDrop => "SIG_SQL_DROP_001",
+            Self::ConfiguredSignature => "SIG_CONFIGURED_SIGNATURE_001",
         }
     }
 }
