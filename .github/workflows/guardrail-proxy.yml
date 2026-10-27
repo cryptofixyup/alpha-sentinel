@@ -1,0 +1,78 @@
+name: Guardrail Proxy CI
+
+on:
+  pull_request:
+    paths:
+      - "guardrail-proxy/**"
+      - ".github/workflows/guardrail-proxy.yml"
+  push:
+    branches: [main, "feat/rust-guardrail-proxy"]
+    paths:
+      - "guardrail-proxy/**"
+      - ".github/workflows/guardrail-proxy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardrail-proxy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-tests:
+    name: Rust unit and compile checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: guardrail-proxy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: guardrail-proxy -> target
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Unit and doc tests
+        run: cargo test
+      - name: Compile release binary
+        run: cargo build --release
+
+  http-regression:
+    name: HTTP regression harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python test dependency
+        run: python -m pip install --disable-pip-version-check requests
+      - name: Build service
+        run: cargo build --manifest-path guardrail-proxy/Cargo.toml
+      - name: Start service and run regression harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./guardrail-proxy/target/debug/alpha-sentinel-guardrail-proxy > /tmp/guardrail-proxy.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8080/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/guardrail-proxy.log
+            echo "Service failed to become ready" >&2
+            exit 1
+          fi
+          python guardrail-proxy/tests/fuzz_harness.py
