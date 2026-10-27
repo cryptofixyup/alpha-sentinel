@@ -7,11 +7,18 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, sync::Arc, time::{Duration, Instant}};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 
 use alpha_sentinel_guardrail_proxy::{
-    audit::{AuditEvent, AuditSink, AuditSinkError, Decision as AuditDecision, Outcome, PgAuditSink, ReasonCode, RuleId},
+    audit::{
+        AuditEvent, AuditSink, AuditSinkError, Decision as AuditDecision, Outcome, PgAuditSink,
+        ReasonCode, RuleId,
+    },
     Decision, SentinelEngine, MAX_PAYLOAD_BYTES,
 };
 
@@ -122,7 +129,14 @@ async fn inspect(State(state): State<AppState>, Json(request): Json<InspectReque
         return unavailable();
     }
 
-    (status, Json(InspectResponse { decision: response, reason })).into_response()
+    (
+        status,
+        Json(InspectResponse {
+            decision: response,
+            reason,
+        }),
+    )
+        .into_response()
 }
 
 #[tokio::main]
@@ -161,7 +175,6 @@ async fn main() {
         .await
         .expect("server failed");
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -205,7 +218,9 @@ mod tests {
         app.oneshot(
             Request::post("/v1/agent/invoke")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::json!({"prompt": prompt}).to_string()))
+                .body(Body::from(
+                    serde_json::json!({"prompt": prompt}).to_string(),
+                ))
                 .unwrap(),
         )
         .await
@@ -215,7 +230,10 @@ mod tests {
 
     #[tokio::test]
     async fn allow_response_is_200_only_after_audit_acknowledgement() {
-        let sink = Arc::new(TestSink { succeed: true, calls: AtomicUsize::new(0) });
+        let sink = Arc::new(TestSink {
+            succeed: true,
+            calls: AtomicUsize::new(0),
+        });
         let status = post_prompt(test_app(sink.clone()), "summarize this report").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
@@ -223,7 +241,10 @@ mod tests {
 
     #[tokio::test]
     async fn audit_failure_never_returns_200_for_allowed_inspection() {
-        let sink = Arc::new(TestSink { succeed: false, calls: AtomicUsize::new(0) });
+        let sink = Arc::new(TestSink {
+            succeed: false,
+            calls: AtomicUsize::new(0),
+        });
         let status = post_prompt(test_app(sink.clone()), "summarize this report").await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_ne!(status, StatusCode::OK);
