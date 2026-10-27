@@ -3,12 +3,14 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 pub const MAX_EVENT_BYTES: usize = 16 * 1024;
 pub const MAX_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_DURATION_MS: u32 = 300_000;
+pub const MAX_CONCURRENT_WRITES: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -219,6 +221,7 @@ pub enum AuditSinkError {
     DeadlineExceeded,
     IdempotencyConflict,
     InvalidEvent,
+    Saturated,
 }
 
 #[async_trait]
@@ -233,6 +236,7 @@ pub trait AuditSink: Send + Sync {
 #[derive(Clone)]
 pub struct PgAuditSink {
     pool: PgPool,
+    write_slots: Arc<Semaphore>,
 }
 
 impl PgAuditSink {
@@ -243,11 +247,11 @@ impl PgAuditSink {
             .connect(database_url)
             .await
             .map_err(|_| AuditSinkError::Unavailable)?;
-        Ok(Self { pool })
+        Ok(Self { pool, write_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_WRITES)) })
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self { pool, write_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_WRITES)) }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -262,6 +266,10 @@ impl AuditSink for PgAuditSink {
         event: &AuditEvent,
         deadline: Duration,
     ) -> Result<(), AuditSinkError> {
+        // Reject overload immediately instead of accumulating unbounded waiters.
+        let _permit = Arc::clone(&self.write_slots)
+            .try_acquire_owned()
+            .map_err(|_| AuditSinkError::Saturated)?;
         let digest = event.digest()?;
         let append = sqlx::query_scalar::<_, bool>(
             "SELECT audit.append_event($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
