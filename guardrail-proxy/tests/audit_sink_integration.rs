@@ -50,19 +50,14 @@ async fn postgres_append_is_idempotent_and_persists_metadata_only() {
     let event = sample_event(23);
     let id = event.request_id();
 
-    sink.append(&event, Duration::from_secs(1))
-        .await
-        .unwrap();
-    sink.append(&event, Duration::from_secs(1))
-        .await
-        .unwrap();
+    sink.append(&event, Duration::from_secs(1)).await.unwrap();
+    sink.append(&event, Duration::from_secs(1)).await.unwrap();
 
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM audit.events WHERE request_id = $1")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM audit.events WHERE request_id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         count, 1,
         "same ID and digest must not create duplicate rows"
@@ -110,7 +105,10 @@ async fn postgres_rejects_reuse_of_event_id_with_different_digest() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(!accepted, "same ID with a different digest must fail closed");
+    assert!(
+        !accepted,
+        "same ID with a different digest must fail closed"
+    );
 
     sqlx::query("DELETE FROM audit.events WHERE request_id = $1")
         .bind(id)
