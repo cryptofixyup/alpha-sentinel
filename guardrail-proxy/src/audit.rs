@@ -35,6 +35,7 @@ impl Decision {
 pub enum Outcome {
     InspectionAllowed,
     PolicyRejected,
+    CircuitOpen,
     InvalidRequest,
     RequestTooLarge,
     TimedOut,
@@ -46,6 +47,7 @@ impl Outcome {
         match self {
             Self::InspectionAllowed => "inspection_allowed",
             Self::PolicyRejected => "policy_rejected",
+            Self::CircuitOpen => "circuit_open",
             Self::InvalidRequest => "invalid_request",
             Self::RequestTooLarge => "request_too_large",
             Self::TimedOut => "timed_out",
@@ -81,6 +83,8 @@ impl RuleId {
 pub enum ReasonCode {
     #[serde(rename = "SIGNATURE_MATCH")]
     SignatureMatch,
+    #[serde(rename = "CIRCUIT_OPEN")]
+    CircuitOpen,
     #[serde(rename = "MALFORMED_REQUEST")]
     MalformedRequest,
     #[serde(rename = "BODY_LIMIT_EXCEEDED")]
@@ -95,6 +99,7 @@ impl ReasonCode {
     fn as_db(self) -> &'static str {
         match self {
             Self::SignatureMatch => "SIGNATURE_MATCH",
+            Self::CircuitOpen => "CIRCUIT_OPEN",
             Self::MalformedRequest => "MALFORMED_REQUEST",
             Self::BodyLimitExceeded => "BODY_LIMIT_EXCEEDED",
             Self::DeadlineExceeded => "DEADLINE_EXCEEDED",
@@ -160,6 +165,7 @@ impl AuditEvent {
             (decision, outcome),
             (Decision::Allow, Outcome::InspectionAllowed)
                 | (Decision::Reject, Outcome::PolicyRejected)
+                | (Decision::Reject, Outcome::CircuitOpen)
                 | (Decision::Reject, Outcome::InvalidRequest)
                 | (Decision::Reject, Outcome::RequestTooLarge)
                 | (Decision::Error, Outcome::TimedOut)
