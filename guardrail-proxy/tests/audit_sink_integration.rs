@@ -157,7 +157,7 @@ async fn runtime_role_can_execute_append_but_cannot_access_table_directly() {
         assert!(!allowed, "runtime role must not have direct {privilege} privilege");
     }
     let can_execute: bool = sqlx::query_scalar(
-        "SELECT has_function_privilege($1, 'audit.append_event(uuid,text,text,text,text,text,text,text,integer,bigint,text,bytea)', 'EXECUTE')",
+        "SELECT has_function_privilege($1, 'audit.append_event(uuid,text,text,timestamptz,text,text,text,text,integer,bigint,text,bytea)', 'EXECUTE')",
     )
     .bind(&role)
     .fetch_one(&pool)
