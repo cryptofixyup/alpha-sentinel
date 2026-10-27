@@ -14,7 +14,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
+use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
 
 use alpha_sentinel_guardrail_proxy::{
     audit::{
@@ -285,7 +285,6 @@ async fn main() {
         .route("/v1/agent/invoke", post(inspect))
         .route_layer(from_fn_with_state(state.clone(), audit_prehandler_rejections))
         .with_state(state)
-        .layer(RequestBodyLimitLayer::new(MAX_PAYLOAD_BYTES))
         .layer(TimeoutLayer::new(Duration::from_secs(3)))
         .layer(TraceLayer::new_for_http());
 
