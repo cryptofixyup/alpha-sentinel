@@ -112,7 +112,7 @@ async fn inspect(State(state): State<AppState>, Json(request): Json<InspectReque
     };
 
     // Do not emit the inspection decision until PostgreSQL confirms the append.
-    // Timeout is ambiguous commit state; return 503 and let a caller retry safely.
+    // Timeout is ambiguous commit state; return 503. A client retry creates a new event ID, so it is not an idempotent replay.
     if state
         .audit_sink
         .append(&event, AUDIT_APPEND_DEADLINE)
