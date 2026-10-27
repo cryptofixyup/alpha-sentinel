@@ -7,11 +7,16 @@ license = "MIT"
 description = "Bounded deterministic request guardrail prototype for Alpha Sentinel"
 
 [dependencies]
+async-trait = "0.1"
 axum = { version = "0.7", features = ["json"] }
+chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
 tower-http = { version = "0.5", features = ["limit", "timeout", "trace"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
