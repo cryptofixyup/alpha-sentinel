@@ -34,9 +34,9 @@ jobs:
       - name: Format check
         run: cargo fmt --all -- --check
       - name: Unit and doc tests
-        run: cargo test --locked
+        run: cargo test
       - name: Compile release binary
-        run: cargo build --release --locked
+        run: cargo build --release
 
   http-regression:
     name: HTTP regression harness
@@ -50,7 +50,7 @@ jobs:
       - name: Install Python test dependency
         run: python -m pip install --disable-pip-version-check requests
       - name: Build service
-        run: cargo build --manifest-path guardrail-proxy/Cargo.toml --locked
+        run: cargo build --manifest-path guardrail-proxy/Cargo.toml
       - name: Start service and run regression harness
         shell: bash
         run: |
