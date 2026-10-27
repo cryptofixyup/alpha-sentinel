@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS audit.events (
             'SIG_PROMPT_OVERRIDE_001',
             'SIG_SYSTEM_PROMPT_001',
             'SIG_ENV_EXFILTRATION_001',
-            'SIG_SQL_DROP_001'
+            'SIG_SQL_DROP_001',
+            'SIG_CONFIGURED_SIGNATURE_001'
         )
     ),
     outcome text NOT NULL CHECK (outcome IN (
