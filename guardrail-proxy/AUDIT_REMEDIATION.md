@@ -6,7 +6,7 @@ Status: draft implementation candidate. This document does not certify a deploym
 
 The /v1/agent/invoke route installs audit middleware before Axum's JSON extractor. The middleware:
 
-- bounds body buffering at MAX_PAYLOAD_BYTES and rejects an oversized declared Content-Length before buffering;
+- bounds body buffering at MAX_PAYLOAD_BYTES, applies a three-second body-read deadline, and rejects an oversized declared Content-Length before buffering;
 - audits oversized-body rejections as request_too_large / BODY_LIMIT_EXCEEDED;
 - audits unsupported/missing JSON content types and JSON deserialization failures as invalid_request / MALFORMED_REQUEST;
 - returns the HTTP rejection only after the audit append is acknowledged; if append acknowledgement fails, it returns the generic fail-closed 503;
