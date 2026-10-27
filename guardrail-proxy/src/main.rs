@@ -283,10 +283,12 @@ async fn main() {
     let app = Router::new()
         .route("/health", axum::routing::get(health))
         .route("/v1/agent/invoke", post(inspect))
-        .route_layer(from_fn_with_state(state.clone(), audit_prehandler_rejections))
-        .with_state(state)
+        .with_state(state.clone())
         .layer(TimeoutLayer::new(Duration::from_secs(3)))
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http())
+        // Keep the audit gate outside timeout/body extraction layers so those
+        // application-level rejections are recorded before a response is emitted.
+        .layer(from_fn_with_state(state, audit_prehandler_rejections));
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
