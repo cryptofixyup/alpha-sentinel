@@ -177,8 +177,8 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use alpha_sentinel_guardrail_proxy::audit::AuditSinkError;
     use super::*;
+    use alpha_sentinel_guardrail_proxy::audit::AuditSinkError;
     use async_trait::async_trait;
     use axum::{body::Body, http::Request};
     use std::sync::atomic::{AtomicUsize, Ordering};
