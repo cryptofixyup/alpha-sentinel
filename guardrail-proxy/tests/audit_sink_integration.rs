@@ -127,6 +127,51 @@ async fn pool_exhaustion_obeys_deadline() {
 }
 
 #[tokio::test]
+async fn runtime_role_can_execute_append_but_cannot_access_table_directly() {
+    let Some(pool) = test_pool().await else { return };
+    let role = format!("audit_runtime_test_{}", Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE ROLE \"{role}\" NOLOGIN"))
+        .execute(&pool)
+        .await
+        .expect("test database must permit creating disposable roles");
+    sqlx::query(&format!("GRANT USAGE ON SCHEMA audit TO \"{role}\""))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(&format!(
+        "GRANT EXECUTE ON FUNCTION audit.append_event(uuid, text, text, timestamptz, text, text, text, text, integer, bigint, text, bytea) TO \"{role}\""
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
+        let allowed: bool = sqlx::query_scalar(
+            "SELECT has_table_privilege($1, 'audit.events', $2)",
+        )
+        .bind(&role)
+        .bind(privilege)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!allowed, "runtime role must not have direct {privilege} privilege");
+    }
+    let can_execute: bool = sqlx::query_scalar(
+        "SELECT has_function_privilege($1, 'audit.append_event(uuid,text,text,text,text,text,text,text,integer,bigint,text,bytea)', 'EXECUTE')",
+    )
+    .bind(&role)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(can_execute, "runtime role needs EXECUTE on append function");
+
+    sqlx::query(&format!("DROP ROLE \"{role}\""))
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn closed_pool_fails_closed_without_exposing_database_errors() {
     let Some(pool) = test_pool().await else { return };
     let sink = PgAuditSink::from_pool(pool.clone());
