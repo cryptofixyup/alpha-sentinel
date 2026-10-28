@@ -202,3 +202,18 @@ def test_reorg_keeps_committed_exposure_reserved_until_reconciliation(tmp_path):
     with pytest.raises(PermissionError, match="EXPOSURE_LIMIT_REACHED"):
         state.reserve_exposure(portfolio, "next-trade", 901, 0, 1000)
     state.close()
+
+
+def test_confirmed_receipt_disagreement_requires_reconciliation_not_terminal_failure():
+    proposal, tx, signed = objects()
+    gateway, verifier = Gateway(), Verifier()
+    settlement = coordinator(gateway, verifier)
+    assert settlement.settle(signed, proposal, tx).status == "CONFIRMED"
+    verifier.receipt = ReceiptEvidence(
+        tx_hash=TX_HASH, chain_id=proposal.chain_id,
+        proposal_digest=proposal.digest(), transaction_digest=tx.digest(),
+        success=False, confirmations=12, required_confirmations=12,
+        canonical=True,
+    )
+    assert settlement.settle(signed, proposal, tx).status == "RECONCILIATION_REQUIRED"
+    assert gateway.calls == 1
