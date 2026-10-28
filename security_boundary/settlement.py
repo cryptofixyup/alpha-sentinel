@@ -66,6 +66,15 @@ class SettlementCoordinator:
         self.verifier = verifier
         self.state_store = state_store
 
+    def _mark_exposure_reconciliation(self, proposal: TradeProposal) -> None:
+        portfolio_id = f"{proposal.chain_id}:{proposal.wallet.lower()}"
+        try:
+            if self.state_store.has_exposure_reservation(portfolio_id, proposal.proposal_id):
+                self.state_store.mark_exposure_reconciliation_required(portfolio_id, proposal.proposal_id)
+        except Exception:
+            # Never release capacity as a side effect of a failed reconciliation attempt.
+            pass
+
     def settle(
         self,
         signed: SignedTransaction,
@@ -112,26 +121,32 @@ class SettlementCoordinator:
                 broadcast = self.gateway.broadcast(signed, proposal, tx)
             except Exception as exc:
                 self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", None)
+                self._mark_exposure_reconciliation(proposal)
                 return SettlementResult("RECONCILIATION_REQUIRED", None, f"broadcast outcome ambiguous: {exc}")
             if not isinstance(broadcast, BroadcastResult):
-                self.state_store.record_broadcast(key, payload_digest, "FAILED", None)
-                return SettlementResult("FAILED", None, "invalid broadcast response")
+                self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", None)
+                self._mark_exposure_reconciliation(proposal)
+                return SettlementResult("RECONCILIATION_REQUIRED", None, "invalid broadcast response; outcome requires reconciliation")
             if not isinstance(broadcast.tx_hash, str) or not _TX_HASH.fullmatch(broadcast.tx_hash):
-                self.state_store.record_broadcast(key, payload_digest, "FAILED", None)
-                return SettlementResult("FAILED", None, "invalid transaction hash")
+                self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", None)
+                self._mark_exposure_reconciliation(proposal)
+                return SettlementResult("RECONCILIATION_REQUIRED", None, "invalid transaction hash; outcome requires reconciliation")
             tx_hash = broadcast.tx_hash
             if broadcast.accepted is not True:
-                self.state_store.record_broadcast(key, payload_digest, "FAILED", tx_hash)
-                return SettlementResult("FAILED", tx_hash, broadcast.reason or "broadcast rejected")
+                self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
+                self._mark_exposure_reconciliation(proposal)
+                return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, broadcast.reason or "broadcast rejection requires reconciliation")
             self.state_store.record_broadcast(key, payload_digest, "BROADCAST", tx_hash)
 
         try:
             receipt = self.verifier.verify_receipt(proposal, tx, tx_hash)
         except Exception as exc:
             self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
+            self._mark_exposure_reconciliation(proposal)
             return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, f"receipt verification unavailable: {exc}")
         if not isinstance(receipt, ReceiptEvidence):
             self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
+            self._mark_exposure_reconciliation(proposal)
             return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, "receipt evidence unavailable")
         if receipt.tx_hash.lower() != tx_hash.lower():
             self.state_store.record_broadcast(key, payload_digest, "FAILED", tx_hash)
@@ -147,6 +162,7 @@ class SettlementCoordinator:
             return SettlementResult("FAILED", tx_hash, "on-chain transaction reverted")
         if receipt.canonical is not True:
             self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
+            self._mark_exposure_reconciliation(proposal)
             return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, "receipt is non-canonical or reorg status unknown")
         if (
             not isinstance(receipt.confirmations, int) or isinstance(receipt.confirmations, bool)
@@ -158,4 +174,12 @@ class SettlementCoordinator:
             self.state_store.record_broadcast(key, payload_digest, "BROADCAST", tx_hash)
             return SettlementResult("BROADCAST", tx_hash, "awaiting required confirmations")
         self.state_store.record_broadcast(key, payload_digest, "CONFIRMED", tx_hash)
+        portfolio_id = f"{proposal.chain_id}:{proposal.wallet.lower()}"
+        try:
+            if self.state_store.has_exposure_reservation(portfolio_id, proposal.proposal_id):
+                self.state_store.commit_exposure(portfolio_id, proposal.proposal_id)
+        except Exception as exc:
+            self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
+            self._mark_exposure_reconciliation(proposal)
+            return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, f"exposure commit failed: {exc}")
         return SettlementResult("CONFIRMED", tx_hash, "receipt verified and confirmation threshold met")
