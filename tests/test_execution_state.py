@@ -95,3 +95,32 @@ def test_broadcast_state_transitions_are_restricted(tmp_path):
         )
     finally:
         state.close()
+
+
+def test_concurrent_reservations_cannot_both_consume_same_capacity(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    db = str(tmp_path / "concurrent.sqlite3")
+    states = [SQLiteExecutionState(db), SQLiteExecutionState(db)]
+
+    def reserve(pair):
+        state, request_id = pair
+        try:
+            state.reserve_exposure("portfolio", request_id, 3000, 1000, 5000)
+            return "reserved"
+        except PermissionError:
+            return "blocked"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(reserve, zip(states, ("a", "b"))))
+        assert sorted(outcomes) == ["blocked", "reserved"]
+    finally:
+        for state in states:
+            state.close()
+
+
+def test_production_rejects_in_memory_execution_state(monkeypatch):
+    monkeypatch.setenv("ALPHA_SENTINEL_ENV", "production")
+    with pytest.raises(RuntimeError, match="persistent shared execution-state storage"):
+        SQLiteExecutionState(":memory:")
