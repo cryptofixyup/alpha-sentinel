@@ -123,9 +123,11 @@ def test_production_pipeline_requires_persistent_proposal_store(monkeypatch, tmp
     from security_boundary.pipeline import BoundaryPipeline
 
     monkeypatch.setenv("ALPHA_SENTINEL_ENV", "production")
-    state = SQLiteExecutionState(str(tmp_path / "execution.sqlite3"))
+    state_path = str(tmp_path / "execution.sqlite3")
+    monkeypatch.setenv("ALPHA_SENTINEL_EXECUTION_STATE_DB", state_path)
+    state = SQLiteExecutionState(state_path)
     try:
-        with pytest.raises(RuntimeError, match="persistent proposal storage"):
+        with pytest.raises(RuntimeError, match="ALPHA_SENTINEL_PROPOSAL_DB"):
             BoundaryPipeline(
                 risk=None, policy=None, router=None, simulator=None, signer=None,
                 execution_gate=ExecutionGate(), execution_state=state,
