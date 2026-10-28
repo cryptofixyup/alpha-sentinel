@@ -177,6 +177,10 @@ class SettlementCoordinator:
             or receipt.required_confirmations < 1
             or receipt.confirmations < receipt.required_confirmations
         ):
+            if prior_state == "CONFIRMED":
+                self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
+                self._mark_exposure_reconciliation(proposal)
+                return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, "previously confirmed finality regressed; reconcile chain state")
             self.state_store.record_broadcast(key, payload_digest, "BROADCAST", tx_hash)
             return SettlementResult("BROADCAST", tx_hash, "awaiting required confirmations")
         self.state_store.record_broadcast(key, payload_digest, "CONFIRMED", tx_hash)
