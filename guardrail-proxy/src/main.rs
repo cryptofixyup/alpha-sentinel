@@ -125,9 +125,7 @@ async fn audit_prehandler_rejections(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    if request.method() != axum::http::Method::POST
-        || request.uri().path() != "/v1/agent/invoke"
-    {
+    if request.method() != axum::http::Method::POST || request.uri().path() != "/v1/agent/invoke" {
         return next.run(request).await;
     }
 
