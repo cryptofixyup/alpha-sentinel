@@ -367,3 +367,41 @@ def test_signing_claim_is_atomic_across_store_connections(tmp_path):
     assert not b.claim_signing("trade")
     a.close()
     b.close()
+
+
+def test_atomic_exposure_reservation_blocks_second_pipeline_before_signing(tmp_path):
+    from security_boundary.execution_controls import ExecutionGate
+    from security_boundary.execution_state import SQLiteExecutionState
+    from security_boundary.store import ProposalStore
+
+    class TestSigner:
+        def __init__(self):
+            self.calls = 0
+
+        def sign(self, proposal, tx, approval):
+            self.calls += 1
+            return SignedTransaction("opaque", proposal.digest(), tx.digest())
+
+    signer = TestSigner()
+    state = SQLiteExecutionState(str(tmp_path / "execution.sqlite3"))
+    proposals = ProposalStore(str(tmp_path / "proposals.sqlite3"))
+
+    def approvals(proposal, tx, simulation):
+        return Approval.bind(proposal, tx, "test-approver", approved_at=1)
+
+    def pipeline():
+        return BoundaryPipeline(
+            RiskEngine(), Policy(chain_id=1, wallet=WALLET, router=ROUTER),
+            FakeRouter(), FakeChain(), signer,
+            approval_provider=approvals, proposal_store=proposals,
+            execution_gate=ExecutionGate(), execution_state=state,
+        )
+
+    first = pipeline().execute(intent(size_bps=100), 4900, request_id="reservation-a")
+    second = pipeline().execute(intent(size_bps=100), 4900, request_id="reservation-b")
+    assert first.status == ProposalStatus.SIGNED
+    assert second.status == ProposalStatus.POLICY_REJECTED
+    assert "EXPOSURE_LIMIT_REACHED" in second.reason
+    assert signer.calls == 1
+    proposals.close()
+    state.close()
