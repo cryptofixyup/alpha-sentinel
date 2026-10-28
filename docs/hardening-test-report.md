@@ -12,7 +12,7 @@ This PR adds a deterministic pre-trade execution gate for kill-switch state, mar
 
 ## Integration boundary / release block
 
-The gate is an explicit component and must be instantiated and invoked by the production orchestration path before signing. The current legacy `BoundaryPipeline` API does not yet require `MarketEvidence` and does not automatically invoke this gate. Therefore this PR does **not** authorize live trading and must not be represented as complete end-to-end production integration. The release gate below records this as a mandatory integration review item rather than silently treating the new module as wired in.
+The gate is now injectable into `BoundaryPipeline` and, when configured, rejects missing/invalid market evidence before simulator or router access. For compatibility, the constructor still permits `execution_gate=None`; production wiring must explicitly provide an `ExecutionGate` and pass authenticated, fresh `MarketEvidence` on every execution request. CI includes an integration regression proving a configured gate rejects before simulator access. This PR does **not** authorize live trading and must not be represented as complete end-to-end production integration. The release gate below records this as a mandatory integration review item rather than silently treating the new module as wired in.
 
 Still requiring separate proof: atomic portfolio reservations across concurrent workers; durable idempotency across the external broadcaster; real private-route provider health and fallback rejection; isolated production key custody; independent receipt verification; operational kill-switch control plane; and deployment-specific secrets/network policy.
 
