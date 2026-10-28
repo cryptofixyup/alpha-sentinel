@@ -8,6 +8,7 @@ from typing import Callable
 
 from .approval import Approval, Timelock, validate_approval
 from .execution import SignedTransaction
+from .execution_controls import ExecutionGate, MarketEvidence
 from .models import ProposalStatus, TradeIntent, TradeProposal, TransactionEnvelope
 from .policy import Policy
 from .proposal import make_proposal
@@ -44,6 +45,7 @@ class BoundaryPipeline:
         timelock: Timelock | None = None,
         approval_provider: ApprovalProvider | None = None,
         proposal_store: ProposalStore | None = None,
+        execution_gate: ExecutionGate | None = None,
     ) -> None:
         self.risk = risk
         self.policy = policy
@@ -53,13 +55,23 @@ class BoundaryPipeline:
         self.timelock = timelock or Timelock()
         self.approval_provider = approval_provider
         self.proposal_store = proposal_store or ProposalStore()
+        self.execution_gate = execution_gate
 
     def execute(
         self,
         intent: TradeIntent,
         portfolio_exposure_bps: int,
         *, request_id: str | None = None,
+        market_evidence: MarketEvidence | dict[str, object] | None = None,
     ) -> PipelineResult:
+        # 0. Optional explicitly configured production execution gate. If enabled,
+        # missing or invalid market evidence rejects before touching the simulator.
+        if self.execution_gate is not None:
+            try:
+                self.execution_gate.evaluate(market_evidence)
+            except Exception as exc:
+                return PipelineResult(ProposalStatus.POLICY_REJECTED, None, None, None, None, str(exc))
+
         # 1. RISK
         gas_gwei = self.simulator.gas_price() // 1_000_000_000
         risk = self.risk.evaluate(intent.size_bps, portfolio_exposure_bps, gas_gwei)
