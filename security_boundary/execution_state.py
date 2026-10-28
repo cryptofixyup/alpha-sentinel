@@ -258,7 +258,7 @@ class SQLiteExecutionState:
                 "IN_FLIGHT": {"BROADCAST", "RECONCILIATION_REQUIRED", "CONFIRMED", "FAILED"},
                 "RECONCILIATION_REQUIRED": {"BROADCAST", "RECONCILIATION_REQUIRED", "CONFIRMED", "FAILED"},
                 "BROADCAST": {"BROADCAST", "RECONCILIATION_REQUIRED", "CONFIRMED", "FAILED"},
-                "CONFIRMED": {"CONFIRMED"},
+                "CONFIRMED": {"CONFIRMED", "RECONCILIATION_REQUIRED"},
                 "FAILED": {"FAILED"},
             }
             if state not in allowed[old_state]:
