@@ -4,10 +4,8 @@ import pytest
 
 from security_boundary.execution import BroadcastResult, SignedTransaction
 from security_boundary.execution_state import SQLiteExecutionState
-from security_boundary.models import Direction, TradeIntent, TradeProposal, TransactionEnvelope
-from security_boundary.settlement import (
-    ReceiptEvidence, SettlementCoordinator,
-)
+from security_boundary.models import Direction, TradeProposal, TransactionEnvelope
+from security_boundary.settlement import ReceiptEvidence, SettlementCoordinator
 
 
 TX_HASH = "0x" + "a" * 64
@@ -66,10 +64,14 @@ class Verifier:
         )
 
 
+def coordinator(gateway, verifier, state=None):
+    return SettlementCoordinator(gateway, verifier, state or SQLiteExecutionState(":memory:"))
+
+
 def test_verified_canonical_receipt_confirms():
     proposal, tx, signed = objects()
     gateway, verifier = Gateway(), Verifier()
-    result = SettlementCoordinator(gateway, verifier, SQLiteExecutionState(":memory:")).settle(signed, proposal, tx)
+    result = coordinator(gateway, verifier).settle(signed, proposal, tx)
     assert result.status == "CONFIRMED"
     assert result.tx_hash == TX_HASH
     assert gateway.calls == verifier.calls == 1
@@ -78,26 +80,35 @@ def test_verified_canonical_receipt_confirms():
 def test_invalid_signed_binding_never_broadcasts():
     proposal, tx, signed = objects()
     gateway, verifier = Gateway(), Verifier()
-    result = SettlementCoordinator(gateway, verifier).settle(
+    result = coordinator(gateway, verifier).settle(
         replace(signed, transaction_digest="bad"), proposal, tx
     )
     assert result.status == "FAILED"
     assert gateway.calls == verifier.calls == 0
 
 
-def test_ambiguous_broadcast_requires_reconciliation_not_retry():
+def test_ambiguous_broadcast_requires_reconciliation_not_retry(tmp_path):
     proposal, tx, signed = objects()
-    gateway, verifier = Gateway(error=TimeoutError("timeout after submit")), Verifier()
-    result = SettlementCoordinator(gateway, verifier).settle(signed, proposal, tx)
+    state = SQLiteExecutionState(str(tmp_path / "state.sqlite3"))
+    first_gateway = Gateway(error=TimeoutError("timeout after submit"))
+    result = coordinator(first_gateway, Verifier(), state).settle(signed, proposal, tx)
     assert result.status == "RECONCILIATION_REQUIRED"
-    assert verifier.calls == 0
+    assert first_gateway.calls == 1
+
+    second_gateway, second_verifier = Gateway(), Verifier()
+    result = coordinator(second_gateway, second_verifier, SQLiteExecutionState(str(tmp_path / "state.sqlite3"))).settle(
+        signed, proposal, tx
+    )
+    assert result.status == "RECONCILIATION_REQUIRED"
+    assert second_gateway.calls == second_verifier.calls == 0
 
 
 def test_rejected_broadcast_never_verifies_receipt():
     proposal, tx, signed = objects()
-    gateway = Gateway(BroadcastResult(TX_HASH, False, "nonce too low"))
     verifier = Verifier()
-    result = SettlementCoordinator(gateway, verifier).settle(signed, proposal, tx)
+    result = coordinator(Gateway(BroadcastResult(TX_HASH, False, "nonce too low")), verifier).settle(
+        signed, proposal, tx
+    )
     assert result.status == "FAILED"
     assert verifier.calls == 0
 
@@ -111,21 +122,51 @@ def test_rejected_broadcast_never_verifies_receipt():
 ])
 def test_receipt_conditions_fail_closed_or_wait(receipt, expected, reason):
     proposal, tx, signed = objects()
-    result = SettlementCoordinator(Gateway(), Verifier(receipt(proposal, tx)), SQLiteExecutionState(":memory:")).settle(signed, proposal, tx)
+    result = coordinator(Gateway(), Verifier(receipt(proposal, tx))).settle(signed, proposal, tx)
     assert result.status == expected
     assert reason in result.reason
 
 
 def test_verifier_failure_does_not_report_success():
     proposal, tx, signed = objects()
-    result = SettlementCoordinator(Gateway(), Verifier(error=TimeoutError("RPC down"))).settle(signed, proposal, tx)
+    result = coordinator(Gateway(), Verifier(error=TimeoutError("RPC down"))).settle(signed, proposal, tx)
     assert result.status == "RECONCILIATION_REQUIRED"
 
 
 def test_malformed_transaction_hash_rejected():
     proposal, tx, signed = objects()
-    result = SettlementCoordinator(
-        Gateway(BroadcastResult("0x123", True, "")), Verifier()
-    ).settle(signed, proposal, tx)
+    result = coordinator(Gateway(BroadcastResult("0x123", True, "")), Verifier()).settle(
+        signed, proposal, tx
+    )
     assert result.status == "FAILED"
     assert "invalid transaction hash" in result.reason
+
+
+def test_repeated_settlement_verifies_existing_hash_without_rebroadcast():
+    proposal, tx, signed = objects()
+    gateway, verifier = Gateway(), Verifier()
+    state = SQLiteExecutionState(":memory:")
+    settlement = coordinator(gateway, verifier, state)
+    first = settlement.settle(signed, proposal, tx)
+    second = settlement.settle(signed, proposal, tx)
+    assert first.status == second.status == "CONFIRMED"
+    assert gateway.calls == 1
+    assert verifier.calls == 2
+
+
+def test_reorg_after_confirmation_moves_back_to_reconciliation_required():
+    proposal, tx, signed = objects()
+    gateway = Gateway()
+    verifier = Verifier()
+    state = SQLiteExecutionState(":memory:")
+    settlement = coordinator(gateway, verifier, state)
+    assert settlement.settle(signed, proposal, tx).status == "CONFIRMED"
+    verifier.receipt = ReceiptEvidence(
+        tx_hash=TX_HASH, chain_id=proposal.chain_id,
+        proposal_digest=proposal.digest(), transaction_digest=tx.digest(),
+        success=True, confirmations=12, required_confirmations=12,
+        canonical=False,
+    )
+    result = settlement.settle(signed, proposal, tx)
+    assert result.status == "RECONCILIATION_REQUIRED"
+    assert gateway.calls == 1
