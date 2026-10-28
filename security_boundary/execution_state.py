@@ -151,7 +151,7 @@ class SQLiteExecutionState:
         with self._transaction() as db:
             result = db.execute(
                 "UPDATE exposure_reservations SET state='RECONCILIATION_REQUIRED' "
-                "WHERE portfolio_id=? AND request_id=? AND state='RESERVED'",
+                "WHERE portfolio_id=? AND request_id=? AND state IN ('RESERVED','COMMITTED','RECONCILIATION_REQUIRED')",
                 (portfolio_id, request_id),
             )
             if result.rowcount != 1:
