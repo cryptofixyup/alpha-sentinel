@@ -105,3 +105,30 @@ def test_non_production_pipeline_can_omit_gate_for_compatibility(monkeypatch):
         execution_gate=None,
     )
     assert pipeline.execution_gate is None
+
+
+def test_production_pipeline_requires_persistent_execution_state(monkeypatch):
+    from security_boundary.pipeline import BoundaryPipeline
+
+    monkeypatch.setenv("ALPHA_SENTINEL_ENV", "production")
+    with pytest.raises(RuntimeError, match="persistent shared execution-state storage"):
+        BoundaryPipeline(
+            risk=None, policy=None, router=None, simulator=None, signer=None,
+            execution_gate=ExecutionGate(),
+        )
+
+
+def test_production_pipeline_requires_persistent_proposal_store(monkeypatch, tmp_path):
+    from security_boundary.execution_state import SQLiteExecutionState
+    from security_boundary.pipeline import BoundaryPipeline
+
+    monkeypatch.setenv("ALPHA_SENTINEL_ENV", "production")
+    state = SQLiteExecutionState(str(tmp_path / "execution.sqlite3"))
+    try:
+        with pytest.raises(RuntimeError, match="persistent proposal storage"):
+            BoundaryPipeline(
+                risk=None, policy=None, router=None, simulator=None, signer=None,
+                execution_gate=ExecutionGate(), execution_state=state,
+            )
+    finally:
+        state.close()
