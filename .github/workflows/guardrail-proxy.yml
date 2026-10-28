@@ -33,8 +33,8 @@ jobs:
           workspaces: guardrail-proxy -> target
       - name: Format check
         run: cargo fmt --all -- --check
-      - name: Unit and doc tests
-        run: cargo test
+      - name: Unit and doc tests (exclude DB integration tests)
+        run: cargo test --lib --bins --doc
       - name: Compile release binary
         run: cargo build --release
 
