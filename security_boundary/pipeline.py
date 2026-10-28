@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import os
 import time
 from typing import Callable
 
@@ -56,6 +57,10 @@ class BoundaryPipeline:
         self.approval_provider = approval_provider
         self.proposal_store = proposal_store or ProposalStore()
         self.execution_gate = execution_gate
+
+        # Production deployments must never silently run without pre-trade evidence gates.
+        if os.environ.get("ALPHA_SENTINEL_ENV", "").strip().lower() == "production" and execution_gate is None:
+            raise RuntimeError("production requires an explicitly configured ExecutionGate")
 
     def execute(
         self,
