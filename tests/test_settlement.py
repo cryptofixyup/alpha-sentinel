@@ -3,6 +3,7 @@ from dataclasses import replace
 import pytest
 
 from security_boundary.execution import BroadcastResult, SignedTransaction
+from security_boundary.execution_state import SQLiteExecutionState
 from security_boundary.models import Direction, TradeIntent, TradeProposal, TransactionEnvelope
 from security_boundary.settlement import (
     ReceiptEvidence, SettlementCoordinator,
@@ -68,7 +69,7 @@ class Verifier:
 def test_verified_canonical_receipt_confirms():
     proposal, tx, signed = objects()
     gateway, verifier = Gateway(), Verifier()
-    result = SettlementCoordinator(gateway, verifier).settle(signed, proposal, tx)
+    result = SettlementCoordinator(gateway, verifier, SQLiteExecutionState(":memory:")).settle(signed, proposal, tx)
     assert result.status == "CONFIRMED"
     assert result.tx_hash == TX_HASH
     assert gateway.calls == verifier.calls == 1
@@ -110,7 +111,7 @@ def test_rejected_broadcast_never_verifies_receipt():
 ])
 def test_receipt_conditions_fail_closed_or_wait(receipt, expected, reason):
     proposal, tx, signed = objects()
-    result = SettlementCoordinator(Gateway(), Verifier(receipt(proposal, tx))).settle(signed, proposal, tx)
+    result = SettlementCoordinator(Gateway(), Verifier(receipt(proposal, tx)), SQLiteExecutionState(":memory:")).settle(signed, proposal, tx)
     assert result.status == expected
     assert reason in result.reason
 
