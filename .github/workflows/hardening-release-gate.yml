@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  execution-controls:
+  python-security:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -20,21 +20,47 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - name: Install test runner
-        run: python -m pip install --upgrade pip pytest
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-typesafe.txt
       - name: Compile security boundary
         run: python -m compileall -q security_boundary
       - name: Test execution controls
         run: python -m pytest -q tests/test_execution_controls.py
       - name: Test existing security boundary
         run: python -m pytest -q tests/test_security_boundary.py
+      - name: Run full Python regression suite
+        run: python -m pytest -q tests/
+
+  javascript-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          node-version: "22"
+      - name: Run lifecycle, evidence and router security suites
+        run: node --test tests/security-boundary.test.js tests/daemon-lifecycle.test.js tests/lifecycle.test.js tests/transition-evidence.test.js tests/zernio-router-v1-ci.test.js
+
+  release-status:
+    if: always()
+    needs: [python-security, javascript-security]
+    runs-on: ubuntu-latest
+    steps:
       - name: Preserve release decision
-        if: always()
         run: |
           {
             echo "# Hardening release gate"
             echo
             echo "- Revision: `$GITHUB_SHA`"
             echo "- Workflow run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo "- Live trading: **BLOCKED** until end-to-end gate integration and all CI checks are verified."
+            echo "- Python suite: \"${{ needs.python-security.result }}\""
+            echo "- JavaScript suite: \"${{ needs.javascript-security.result }}\""
+            echo "- Live trading: **BLOCKED** until production gate configuration, atomic exposure reservations, signer isolation, and end-to-end broadcast/receipt verification are independently verified."
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail if a required suite failed
+        if: needs.python-security.result != 'success' || needs.javascript-security.result != 'success'
+        run: exit 1
