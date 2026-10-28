@@ -8,12 +8,18 @@ use uuid::Uuid;
 
 async fn test_pool() -> Option<PgPool> {
     let url = match std::env::var("TEST_DATABASE_URL") {
-        Ok(value) if !value.is_empty() => value,
+        Ok(value) if !value.trim().is_empty() => value,
+        _ if std::env::var_os("CI").is_some() => {
+            panic!("TEST_DATABASE_URL must be set to a non-empty PostgreSQL URL in CI");
+        }
         _ => {
-            eprintln!("SKIP audit PostgreSQL integration test: TEST_DATABASE_URL is not set");
+            eprintln!(
+                "SKIP: PostgreSQL audit integration test requires TEST_DATABASE_URL outside CI"
+            );
             return None;
         }
     };
+    eprintln!("RUN: PostgreSQL-backed audit integration test (database URL configured)");
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .acquire_timeout(Duration::from_secs(2))
