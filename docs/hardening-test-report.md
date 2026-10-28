@@ -25,7 +25,7 @@ Adds deterministic pre-trade execution gates, atomic exposure reservations, a du
 - `SettlementGateway` and `ReceiptVerifier` remain injected interfaces. There is no production chain RPC/private-relay implementation, nonce reconciliation, replacement-transaction workflow, or finality polling in this repository change. The target provider and operational routing policy must be selected and tested against the target chain before live execution.
 - A broadcast timeout is marked `RECONCILIATION_REQUIRED`; no automatic retry occurs. A deployment reconciliation worker must query the provider by transaction hash/nonce/idempotency identity and explicitly record the result before another attempt.
 - The isolated signer is still an interface plus a disabled default. HSM/KMS custody, signer-service authentication, network isolation, policy enforcement at the signer, and independent access-control evidence must be deployed and audited.
-- Production configuration must set `ALPHA_SENTINEL_ENV=production`, inject the gate and durable stores, provide authenticated fresh market evidence on every attempt, and use the same execution-state database for pipeline reservations and settlement.
+- Production configuration must set `ALPHA_SENTINEL_ENV=production`, set `ALPHA_SENTINEL_EXECUTION_STATE_DB` to the same persistent database path for pipeline reservations and settlement, set `ALPHA_SENTINEL_PROPOSAL_DB` to the persistent proposal database path, inject the gate and durable stores, and provide authenticated fresh market evidence on every attempt.
 
 ## Remaining release blockers
 
