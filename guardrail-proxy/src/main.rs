@@ -74,7 +74,11 @@ async fn audit_timeout(state: &AppState) -> bool {
         Ok(event) => event,
         Err(_) => return false,
     };
-    state.audit_sink.append(&event, AUDIT_APPEND_DEADLINE).await.is_ok()
+    state
+        .audit_sink
+        .append(&event, AUDIT_APPEND_DEADLINE)
+        .await
+        .is_ok()
 }
 
 async fn audit_rejection(
@@ -96,7 +100,11 @@ async fn audit_rejection(
         Ok(event) => event,
         Err(_) => return false,
     };
-    state.audit_sink.append(&event, AUDIT_APPEND_DEADLINE).await.is_ok()
+    state
+        .audit_sink
+        .append(&event, AUDIT_APPEND_DEADLINE)
+        .await
+        .is_ok()
 }
 
 fn is_json_content_type(value: &str) -> bool {
@@ -117,9 +125,7 @@ async fn audit_prehandler_rejections(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    if request.method() != axum::http::Method::POST
-        || request.uri().path() != "/v1/agent/invoke"
-    {
+    if request.method() != axum::http::Method::POST || request.uri().path() != "/v1/agent/invoke" {
         return next.run(request).await;
     }
 
@@ -240,7 +246,8 @@ async fn audit_prehandler_rejections(
             .into_response();
     }
 
-    next.run(Request::from_parts(parts, Body::from(bytes))).await
+    next.run(Request::from_parts(parts, Body::from(bytes)))
+        .await
 }
 
 async fn inspect(State(state): State<AppState>, Json(request): Json<InspectRequest>) -> Response {
@@ -399,7 +406,10 @@ mod tests {
         };
         Router::new()
             .route("/v1/agent/invoke", post(inspect))
-            .route_layer(from_fn_with_state(state.clone(), audit_prehandler_rejections))
+            .route_layer(from_fn_with_state(
+                state.clone(),
+                audit_prehandler_rejections,
+            ))
             .with_state(state)
     }
 
@@ -475,6 +485,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unsupported_content_type_fails_closed_when_audit_append_fails() {
+        let sink = Arc::new(TestSink {
+            succeed: false,
+            calls: AtomicUsize::new(0),
+        });
+        let response = test_app(sink.clone())
+            .oneshot(
+                Request::post("/v1/agent/invoke")
+                    .header("content-type", "text/plain")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn declared_oversize_body_is_audited_before_413_response() {
         let sink = Arc::new(TestSink {
             succeed: true,
@@ -491,6 +520,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn declared_oversize_body_fails_closed_when_audit_append_fails() {
+        let sink = Arc::new(TestSink {
+            succeed: false,
+            calls: AtomicUsize::new(0),
+        });
+        let response = test_app(sink.clone())
+            .oneshot(
+                Request::post("/v1/agent/invoke")
+                    .header("content-type", "application/json")
+                    .header("content-length", (MAX_PAYLOAD_BYTES + 1).to_string())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(sink.calls.load(Ordering::SeqCst), 1);
     }
 
