@@ -95,6 +95,7 @@ test('explicit successful simulator supports initial and post-timelock simulatio
   assert.equal(daemon.snapshot().lifecycle, STATES.SIMULATED);
 
   daemon.enterTimelock({ actor: 'operator', unlockAt: 1000 });
-  assert.equal(daemon.resimulate({ actor: 'operator', now: 1000 }).ok, true);
+  daemon.resimulate({ actor: 'operator', now: 1000 });
   assert.equal(daemon.snapshot().lifecycle, STATES.RE_SIMULATED);
+  assert.equal(daemon.snapshot().metadata.resimulation.ok, true);
 });
