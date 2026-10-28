@@ -16,7 +16,7 @@ async fn test_pool() -> Option<PgPool> {
         }
     };
     eprintln!("RUN: PostgreSQL-backed audit integration test (database URL configured)");
-    let pool = PgPoolOptions::new().max_connections(2).acquire_timeout(Duration::from_secs(2)).connect(&url).await
+    let pool = PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(2)).connect(&url).await
         .expect("TEST_DATABASE_URL must point to a disposable PostgreSQL test database");
     sqlx::migrate!("./migrations").run(&pool).await
         .expect("audit migrations must apply to the disposable test database");
