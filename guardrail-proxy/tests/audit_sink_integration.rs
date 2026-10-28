@@ -13,7 +13,9 @@ async fn test_pool() -> Option<PgPool> {
             panic!("TEST_DATABASE_URL must be set to a non-empty PostgreSQL URL in CI")
         }
         _ => {
-            eprintln!("SKIP: PostgreSQL audit integration test requires TEST_DATABASE_URL outside CI");
+            eprintln!(
+                "SKIP: PostgreSQL audit integration test requires TEST_DATABASE_URL outside CI"
+            );
             return None;
         }
     };
@@ -55,12 +57,11 @@ async fn postgres_append_is_idempotent_and_persists_metadata_only() {
     let id = event.request_id();
     sink.append(&event, Duration::from_secs(1)).await.unwrap();
     sink.append(&event, Duration::from_secs(1)).await.unwrap();
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM audit.events WHERE request_id = $1")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM audit.events WHERE request_id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         count, 1,
         "same ID and digest must not create duplicate rows"
