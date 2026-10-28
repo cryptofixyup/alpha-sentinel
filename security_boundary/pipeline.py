@@ -3,11 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import os
 import time
 from typing import Callable
 
 from .approval import Approval, Timelock, validate_approval
 from .execution import SignedTransaction
+from .execution_controls import ExecutionGate, MarketEvidence
+from .execution_state import SQLiteExecutionState
 from .models import ProposalStatus, TradeIntent, TradeProposal, TransactionEnvelope
 from .policy import Policy
 from .proposal import make_proposal
@@ -44,6 +47,8 @@ class BoundaryPipeline:
         timelock: Timelock | None = None,
         approval_provider: ApprovalProvider | None = None,
         proposal_store: ProposalStore | None = None,
+        execution_gate: ExecutionGate | None = None,
+        execution_state: SQLiteExecutionState | None = None,
     ) -> None:
         self.risk = risk
         self.policy = policy
@@ -53,13 +58,38 @@ class BoundaryPipeline:
         self.timelock = timelock or Timelock()
         self.approval_provider = approval_provider
         self.proposal_store = proposal_store or ProposalStore()
+        self.execution_gate = execution_gate
+        self.execution_state = execution_state
+
+        # Production requires mandatory evidence gates and durable state for both
+        # proposal/signing idempotency and shared exposure reservations.
+        if os.environ.get("ALPHA_SENTINEL_ENV", "").strip().lower() == "production":
+            if execution_gate is None:
+                raise RuntimeError("production requires an explicitly configured ExecutionGate")
+            if execution_state is None or not execution_state.is_persistent:
+                raise RuntimeError("production requires persistent shared execution-state storage")
+            expected_state_path = os.environ.get("ALPHA_SENTINEL_EXECUTION_STATE_DB")
+            if not expected_state_path or os.path.abspath(execution_state.path) != os.path.abspath(expected_state_path):
+                raise RuntimeError("production execution state must use ALPHA_SENTINEL_EXECUTION_STATE_DB")
+            expected_proposal_path = os.environ.get("ALPHA_SENTINEL_PROPOSAL_DB")
+            if not self.proposal_store.is_persistent or not expected_proposal_path or os.path.abspath(self.proposal_store.path) != os.path.abspath(expected_proposal_path):
+                raise RuntimeError("production proposal store must use ALPHA_SENTINEL_PROPOSAL_DB")
 
     def execute(
         self,
         intent: TradeIntent,
         portfolio_exposure_bps: int,
         *, request_id: str | None = None,
+        market_evidence: MarketEvidence | dict[str, object] | None = None,
     ) -> PipelineResult:
+        # 0. Optional explicitly configured production execution gate. If enabled,
+        # missing or invalid market evidence rejects before touching the simulator.
+        if self.execution_gate is not None:
+            try:
+                self.execution_gate.evaluate(market_evidence)
+            except Exception as exc:
+                return PipelineResult(ProposalStatus.POLICY_REJECTED, None, None, None, None, str(exc))
+
         # 1. RISK
         gas_gwei = self.simulator.gas_price() // 1_000_000_000
         risk = self.risk.evaluate(intent.size_bps, portfolio_exposure_bps, gas_gwei)
@@ -164,21 +194,50 @@ class BoundaryPipeline:
                 proposal, tx, simulation, None, str(exc),
             )
 
-        # 8. ISOLATED SIGNER
+        # 8. Reserve portfolio capacity atomically immediately before signing.
+        # Every production worker must share the same transactional state database.
+        portfolio_id = f"{self.policy.chain_id}:{self.policy.wallet}"
+        reservation_acquired = False
+        if self.execution_state is not None:
+            try:
+                self.execution_state.reserve_exposure(
+                    portfolio_id,
+                    proposal.proposal_id,
+                    risk.permitted_size_bps,
+                    portfolio_exposure_bps,
+                    self.risk.limits.max_portfolio_exposure_bps,
+                )
+                reservation_acquired = True
+            except Exception as exc:
+                return PipelineResult(
+                    ProposalStatus.POLICY_REJECTED,
+                    proposal, tx, simulation, None,
+                    f"atomic exposure reservation blocked: {exc}",
+                )
+
+        # 9. ISOLATED SIGNER. Never release a reservation merely because another
+        # worker lost the signing claim; that worker may own the same reservation.
+        signing_claimed = False
         try:
             if int(time.time()) >= proposal.deadline:
                 raise PermissionError("proposal expired before signing")
             if not self.proposal_store.claim_signing(request_id):
                 raise PermissionError("signing already attempted; reconciliation required")
+            signing_claimed = True
             signed = self.signer.sign(proposal, tx, approval)
             signed.validate(proposal, tx)
         except Exception as exc:
+            if reservation_acquired and signing_claimed:
+                try:
+                    self.execution_state.release_exposure(portfolio_id, proposal.proposal_id)
+                except Exception as release_exc:
+                    exc = RuntimeError(f"{exc}; exposure reservation release failed: {release_exc}")
             return PipelineResult(
                 ProposalStatus.SIGNING_BLOCKED,
                 proposal, tx, simulation, None, str(exc),
             )
 
-        # 9. BROADCAST and 10. VERIFICATION intentionally remain outside
+        # 10. BROADCAST and 11. VERIFICATION intentionally remain outside
         # this process. The signer returns an authorization-bound opaque payload.
         return PipelineResult(
             ProposalStatus.SIGNED,

@@ -10,6 +10,8 @@ from .models import Direction, TradeProposal, TransactionEnvelope
 
 class ProposalStore:
     def __init__(self, path: str = ":memory:") -> None:
+        self.path = path
+        self.is_persistent = path != ":memory:"
         if path != ":memory:":
             try:
                 fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
