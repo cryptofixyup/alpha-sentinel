@@ -60,3 +60,25 @@ def test_custom_limits_are_applied():
     gate = ExecutionGate(ExecutionLimits(min_net_expected_value_bps=30))
     with pytest.raises(PermissionError, match="NET_EXPECTED_VALUE_BELOW_FLOOR"):
         gate.evaluate(evidence(expected_value_bps=25))
+
+
+def test_configured_pipeline_gate_rejects_before_simulator_or_router():
+    from security_boundary.pipeline import BoundaryPipeline
+    from security_boundary.models import Direction, ProposalStatus, TradeIntent
+
+    class NeverSimulator:
+        def gas_price(self):
+            pytest.fail("execution evidence must be checked before simulator access")
+
+    pipeline = BoundaryPipeline(
+        risk=None, policy=None, router=None, simulator=NeverSimulator(), signer=None,
+        execution_gate=ExecutionGate(),
+    )
+    result = pipeline.execute(
+        TradeIntent("ETH", Direction.LONG, 1, 100, "test", 100),
+        0,
+        request_id="test-guard",
+    )
+    assert result.status is ProposalStatus.POLICY_REJECTED
+    assert result.reason == "MARKET_EVIDENCE_REQUIRED"
+    assert result.signed_transaction is None
