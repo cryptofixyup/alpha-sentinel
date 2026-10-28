@@ -68,8 +68,12 @@ class BoundaryPipeline:
                 raise RuntimeError("production requires an explicitly configured ExecutionGate")
             if execution_state is None or not execution_state.is_persistent:
                 raise RuntimeError("production requires persistent shared execution-state storage")
-            if not self.proposal_store.is_persistent:
-                raise RuntimeError("production requires persistent proposal storage")
+            expected_state_path = os.environ.get("ALPHA_SENTINEL_EXECUTION_STATE_DB")
+            if not expected_state_path or os.path.abspath(execution_state.path) != os.path.abspath(expected_state_path):
+                raise RuntimeError("production execution state must use ALPHA_SENTINEL_EXECUTION_STATE_DB")
+            expected_proposal_path = os.environ.get("ALPHA_SENTINEL_PROPOSAL_DB")
+            if not self.proposal_store.is_persistent or not expected_proposal_path or os.path.abspath(self.proposal_store.path) != os.path.abspath(expected_proposal_path):
+                raise RuntimeError("production proposal store must use ALPHA_SENTINEL_PROPOSAL_DB")
 
     def execute(
         self,
