@@ -75,6 +75,16 @@ class SettlementCoordinator:
             # Never release capacity as a side effect of a failed reconciliation attempt.
             pass
 
+    def _receipt_failure(
+        self, key: str, payload_digest: str, tx_hash: str, proposal: TradeProposal,
+        prior_state: str, reason: str,
+    ) -> SettlementResult:
+        status = "RECONCILIATION_REQUIRED" if prior_state == "CONFIRMED" else "FAILED"
+        self.state_store.record_broadcast(key, payload_digest, status, tx_hash)
+        if status == "RECONCILIATION_REQUIRED":
+            self._mark_exposure_reconciliation(proposal)
+        return SettlementResult(status, tx_hash, reason)
+
     def settle(
         self,
         signed: SignedTransaction,
@@ -149,17 +159,13 @@ class SettlementCoordinator:
             self._mark_exposure_reconciliation(proposal)
             return SettlementResult("RECONCILIATION_REQUIRED", tx_hash, "receipt evidence unavailable")
         if receipt.tx_hash.lower() != tx_hash.lower():
-            self.state_store.record_broadcast(key, payload_digest, "FAILED", tx_hash)
-            return SettlementResult("FAILED", tx_hash, "receipt transaction hash mismatch")
+            return self._receipt_failure(key, payload_digest, tx_hash, proposal, prior_state, "receipt transaction hash mismatch")
         if receipt.chain_id != proposal.chain_id:
-            self.state_store.record_broadcast(key, payload_digest, "FAILED", tx_hash)
-            return SettlementResult("FAILED", tx_hash, "receipt chain mismatch")
+            return self._receipt_failure(key, payload_digest, tx_hash, proposal, prior_state, "receipt chain mismatch")
         if receipt.proposal_digest != proposal.digest() or receipt.transaction_digest != tx.digest():
-            self.state_store.record_broadcast(key, payload_digest, "FAILED", tx_hash)
-            return SettlementResult("FAILED", tx_hash, "receipt does not bind to authorized proposal and transaction")
+            return self._receipt_failure(key, payload_digest, tx_hash, proposal, prior_state, "receipt does not bind to authorized proposal and transaction")
         if receipt.success is not True:
-            self.state_store.record_broadcast(key, payload_digest, "FAILED", tx_hash)
-            return SettlementResult("FAILED", tx_hash, "on-chain transaction reverted")
+            return self._receipt_failure(key, payload_digest, tx_hash, proposal, prior_state, "on-chain transaction reverted")
         if receipt.canonical is not True:
             self.state_store.record_broadcast(key, payload_digest, "RECONCILIATION_REQUIRED", tx_hash)
             self._mark_exposure_reconciliation(proposal)
