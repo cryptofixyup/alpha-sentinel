@@ -217,3 +217,20 @@ def test_confirmed_receipt_disagreement_requires_reconciliation_not_terminal_fai
     )
     assert settlement.settle(signed, proposal, tx).status == "RECONCILIATION_REQUIRED"
     assert gateway.calls == 1
+
+
+def test_confirmation_regression_after_success_requires_reconciliation():
+    proposal, tx, signed = objects()
+    gateway, verifier = Gateway(), Verifier()
+    settlement = coordinator(gateway, verifier)
+    assert settlement.settle(signed, proposal, tx).status == "CONFIRMED"
+    verifier.receipt = ReceiptEvidence(
+        tx_hash=TX_HASH, chain_id=proposal.chain_id,
+        proposal_digest=proposal.digest(), transaction_digest=tx.digest(),
+        success=True, confirmations=1, required_confirmations=12,
+        canonical=True,
+    )
+    result = settlement.settle(signed, proposal, tx)
+    assert result.status == "RECONCILIATION_REQUIRED"
+    assert "finality regressed" in result.reason
+    assert gateway.calls == 1
