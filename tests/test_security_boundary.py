@@ -370,7 +370,6 @@ def test_signing_claim_is_atomic_across_store_connections(tmp_path):
 
 
 def test_atomic_exposure_reservation_blocks_second_pipeline_before_signing(tmp_path):
-    from security_boundary.execution_controls import ExecutionGate
     from security_boundary.execution_state import SQLiteExecutionState
     from security_boundary.store import ProposalStore
 
@@ -394,7 +393,7 @@ def test_atomic_exposure_reservation_blocks_second_pipeline_before_signing(tmp_p
             RiskEngine(), Policy(chain_id=1, wallet=WALLET, router=ROUTER),
             FakeRouter(), FakeChain(), signer,
             approval_provider=approvals, proposal_store=proposals,
-            execution_gate=ExecutionGate(), execution_state=state,
+            execution_state=state,
         )
 
     first = pipeline().execute(intent(size_bps=100), 4900, request_id="reservation-a")
