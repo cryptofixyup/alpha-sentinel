@@ -103,13 +103,13 @@ def test_ambiguous_broadcast_requires_reconciliation_not_retry(tmp_path):
     assert second_gateway.calls == second_verifier.calls == 0
 
 
-def test_rejected_broadcast_never_verifies_receipt():
+def test_rejected_broadcast_requires_reconciliation_and_never_verifies_receipt():
     proposal, tx, signed = objects()
     verifier = Verifier()
     result = coordinator(Gateway(BroadcastResult(TX_HASH, False, "nonce too low")), verifier).settle(
         signed, proposal, tx
     )
-    assert result.status == "FAILED"
+    assert result.status == "RECONCILIATION_REQUIRED"
     assert verifier.calls == 0
 
 
@@ -138,7 +138,7 @@ def test_malformed_transaction_hash_rejected():
     result = coordinator(Gateway(BroadcastResult("0x123", True, "")), Verifier()).settle(
         signed, proposal, tx
     )
-    assert result.status == "FAILED"
+    assert result.status == "RECONCILIATION_REQUIRED"
     assert "invalid transaction hash" in result.reason
 
 
