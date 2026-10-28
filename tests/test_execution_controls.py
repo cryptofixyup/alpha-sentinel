@@ -82,3 +82,26 @@ def test_configured_pipeline_gate_rejects_before_simulator_or_router():
     assert result.status is ProposalStatus.POLICY_REJECTED
     assert result.reason == "MARKET_EVIDENCE_REQUIRED"
     assert result.signed_transaction is None
+
+
+
+def test_production_pipeline_requires_execution_gate(monkeypatch):
+    from security_boundary.pipeline import BoundaryPipeline
+
+    monkeypatch.setenv("ALPHA_SENTINEL_ENV", "production")
+    with pytest.raises(RuntimeError, match="production requires an explicitly configured ExecutionGate"):
+        BoundaryPipeline(
+            risk=None, policy=None, router=None, simulator=None, signer=None,
+            execution_gate=None,
+        )
+
+
+def test_non_production_pipeline_can_omit_gate_for_compatibility(monkeypatch):
+    from security_boundary.pipeline import BoundaryPipeline
+
+    monkeypatch.delenv("ALPHA_SENTINEL_ENV", raising=False)
+    pipeline = BoundaryPipeline(
+        risk=None, policy=None, router=None, simulator=None, signer=None,
+        execution_gate=None,
+    )
+    assert pipeline.execution_gate is None
