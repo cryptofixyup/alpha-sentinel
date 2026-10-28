@@ -1,3 +1,5 @@
+pub mod audit;
+
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub const STATE_MONITORING: u8 = 0;

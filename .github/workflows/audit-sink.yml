@@ -1,0 +1,71 @@
+name: PostgreSQL Audit Sink CI
+
+on:
+  pull_request:
+    paths:
+      - "guardrail-proxy/**"
+      - ".github/workflows/audit-sink.yml"
+  push:
+    branches:
+      - "feat/postgres-audit-sink"
+    paths:
+      - "guardrail-proxy/**"
+      - ".github/workflows/audit-sink.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-sink-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: guardrail-proxy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: guardrail-proxy -> target
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Unit and binary tests (exclude DB integration tests)
+        run: cargo test --lib --bins
+      - name: Documentation tests
+        run: cargo test --doc
+      - name: Release compilation
+        run: cargo build --release
+
+  postgres-fault-injection:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: audit_test
+          POSTGRES_PASSWORD: audit_test_only
+          POSTGRES_DB: audit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U audit_test -d audit_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: guardrail-proxy
+    env:
+      TEST_DATABASE_URL: postgres://audit_test:audit_test_only@localhost:5432/audit_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: guardrail-proxy -> target
+      - name: PostgreSQL integration and fault-injection tests
+        run: cargo test --test audit_sink_integration -- --test-threads=1
