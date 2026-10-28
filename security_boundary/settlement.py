@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import os
 import re
 from typing import Protocol
 
@@ -62,6 +63,10 @@ class SettlementCoordinator:
     ):
         if state_store is None:
             raise ValueError("persistent execution-state store required")
+        if os.environ.get("ALPHA_SENTINEL_ENV", "").strip().lower() == "production":
+            expected = os.environ.get("ALPHA_SENTINEL_EXECUTION_STATE_DB")
+            if not state_store.is_persistent or not expected or os.path.abspath(state_store.path) != os.path.abspath(expected):
+                raise RuntimeError("production settlement must use ALPHA_SENTINEL_EXECUTION_STATE_DB")
         self.gateway = gateway
         self.verifier = verifier
         self.state_store = state_store
