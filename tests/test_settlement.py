@@ -170,3 +170,35 @@ def test_reorg_after_confirmation_moves_back_to_reconciliation_required():
     result = settlement.settle(signed, proposal, tx)
     assert result.status == "RECONCILIATION_REQUIRED"
     assert gateway.calls == 1
+
+
+def test_confirmed_settlement_commits_exposure_reservation(tmp_path):
+    proposal, tx, signed = objects()
+    state = SQLiteExecutionState(str(tmp_path / "state.sqlite3"))
+    portfolio = f"{proposal.chain_id}:{proposal.wallet.lower()}"
+    state.reserve_exposure(portfolio, proposal.proposal_id, 100, 0, 1000)
+    result = coordinator(Gateway(), Verifier(), state).settle(signed, proposal, tx)
+    assert result.status == "CONFIRMED"
+    with pytest.raises(PermissionError, match="EXPOSURE_LIMIT_REACHED"):
+        state.reserve_exposure(portfolio, "next-trade", 901, 0, 1000)
+    state.close()
+
+
+def test_reorg_keeps_committed_exposure_reserved_until_reconciliation(tmp_path):
+    proposal, tx, signed = objects()
+    state = SQLiteExecutionState(str(tmp_path / "state.sqlite3"))
+    portfolio = f"{proposal.chain_id}:{proposal.wallet.lower()}"
+    state.reserve_exposure(portfolio, proposal.proposal_id, 100, 0, 1000)
+    gateway, verifier = Gateway(), Verifier()
+    settlement = coordinator(gateway, verifier, state)
+    assert settlement.settle(signed, proposal, tx).status == "CONFIRMED"
+    verifier.receipt = ReceiptEvidence(
+        tx_hash=TX_HASH, chain_id=proposal.chain_id,
+        proposal_digest=proposal.digest(), transaction_digest=tx.digest(),
+        success=True, confirmations=12, required_confirmations=12,
+        canonical=False,
+    )
+    assert settlement.settle(signed, proposal, tx).status == "RECONCILIATION_REQUIRED"
+    with pytest.raises(PermissionError, match="EXPOSURE_LIMIT_REACHED"):
+        state.reserve_exposure(portfolio, "next-trade", 901, 0, 1000)
+    state.close()
