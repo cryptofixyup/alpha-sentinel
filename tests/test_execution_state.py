@@ -71,6 +71,7 @@ def test_broadcast_claim_is_durable_and_never_claimed_twice(tmp_path):
 def test_broadcast_journal_resumes_by_hash_without_resubmission(tmp_path):
     db = str(tmp_path / "state.sqlite3")
     first = SQLiteExecutionState(db)
+    assert first.claim_broadcast("key", "digest") == (True, "IN_FLIGHT", None)
     first.close()
     resumed = SQLiteExecutionState(db)
     try:
