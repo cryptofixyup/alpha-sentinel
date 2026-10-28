@@ -41,6 +41,8 @@ class SQLiteExecutionState:
     def __init__(self, path: str) -> None:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("persistent execution-state database path required")
+        self.path = path
+        self.is_persistent = path != ":memory:"
         if path == ":memory:" and os.environ.get("ALPHA_SENTINEL_ENV", "").strip().lower() == "production":
             raise RuntimeError("production requires persistent shared execution-state storage")
         if path != ":memory:":
@@ -159,6 +161,13 @@ class SQLiteExecutionState:
                 ).fetchone()
                 if row is None or row[0] != "RECONCILIATION_REQUIRED":
                     raise ValueError("reservation is not active")
+
+    def has_exposure_reservation(self, portfolio_id: str, request_id: str) -> bool:
+        row = self._db.execute(
+            "SELECT state FROM exposure_reservations WHERE portfolio_id=? AND request_id=?",
+            (portfolio_id, request_id),
+        ).fetchone()
+        return row is not None and row[0] != "RELEASED"
 
     def commit_exposure(self, portfolio_id: str, request_id: str) -> None:
         """Mark a confirmed trade committed; continue counting it until chain reconciliation."""
