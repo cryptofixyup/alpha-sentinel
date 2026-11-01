@@ -35,6 +35,26 @@ test('simulation fails closed for false, null, primitive, and throwing results',
   }
 });
 
+test('undefined simulation result is rejected without advancing lifecycle', () => {
+  const daemon = makeDaemon(() => undefined);
+  bindProposal(daemon, 'undefined-result');
+
+  assert.throws(() => daemon.simulate({ actor: 'operator' }), {
+    message: 'SIMULATION_FAILED',
+  });
+  assert.equal(daemon.snapshot().lifecycle, STATES.BOUND);
+});
+
+test('stringified truthy results are rejected without advancing lifecycle', () => {
+  const daemon = makeDaemon(() => ({ ok: 'true' }));
+  bindProposal(daemon, 'truthy-string');
+
+  assert.throws(() => daemon.simulate({ actor: 'operator' }), {
+    message: 'SIMULATION_FAILED',
+  });
+  assert.equal(daemon.snapshot().lifecycle, STATES.BOUND);
+});
+
 test('simulation fails closed when result cannot be cloned', () => {
   const bound = { kind: 'BoundTransaction', proposalId: 'p-clone' };
   const result = { ok: true, unsupported: () => 'not cloneable' };
