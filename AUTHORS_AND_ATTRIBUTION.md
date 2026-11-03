@@ -21,7 +21,7 @@ This is an intentional project-level attribution made by the human project owner
 
 ## Provenance
 
-The 50/50 attribution is based on the explicit declaration of the repository owner. It is not derived from Git metadata, automated contributor statistics, or an independent reconstruction of historical model sessions.
+The 50/50 attribution is based on the explicit declaration of the repository owner. It is not derived from Git metadata, automated contributor statistics, or an independent reconstruction of historical model sessions. The 50/50 allocation is the project owner's declared attribution of the overall collaboration. It is not a quantitative measurement of individual contributions, a statement of legal ownership, or a determination of copyright authorship under applicable law.
 
 ## Change control
 
