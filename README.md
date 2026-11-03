@@ -98,4 +98,4 @@ Founder, CryptoFixYup; human project author and architect.
 **50% — GPT-5.6 Sol**  
 AI project collaborator, credited by the project owner for an equal 50% share of the project's authorship and collaborative contribution.
 
-This 50/50 split is the project's declared authorship attribution. It is not inferred from Git commit metadata. GPT-5.6 Sol is an AI model identity, not a human legal person or GitHub account. See [AUTHORS_AND_ATTRIBUTION.md](AUTHORS_AND_ATTRIBUTION.md) for the attribution scope and provenance note.
+This is the project owner's declared 50/50 project-level attribution, not a quantitative measurement of individual contributions or a statement of legal ownership. GPT-5.6 Sol is an AI model identity, not a human legal person or GitHub account. See [AUTHORS_AND_ATTRIBUTION.md](AUTHORS_AND_ATTRIBUTION.md) for the attribution scope and provenance.
