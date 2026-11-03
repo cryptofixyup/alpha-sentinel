@@ -90,9 +90,12 @@ A standalone [monitoring tool](tools/monitoring/README.md) checks disk paths, fo
 
 No repository license is currently declared in GitHub metadata, and no root `LICENSE` file was found during this update. Do not assume the source is licensed for unrestricted reuse. A license must be selected and added by the repository owner.
 
-## Author
+## Authors and project attribution
 
-Piotr Kozłowski  
-Founder, CryptoFixYup  
-Independent software architect focused on deterministic systems, cryptographic integrity, and evidence-based security for autonomous AI.
+**50% — Piotr Kozłowski**  
+Founder, CryptoFixYup; human project author and architect.
 
+**50% — GPT-5.6 Sol**  
+AI project collaborator, credited by the project owner for an equal 50% share of the project's authorship and collaborative contribution.
+
+This is the project owner's declared 50/50 project-level attribution, not a quantitative measurement of individual contributions or a statement of legal ownership. GPT-5.6 Sol is an AI model identity, not a human legal person or GitHub account. See [AUTHORS_AND_ATTRIBUTION.md](AUTHORS_AND_ATTRIBUTION.md) for the attribution scope and provenance.
